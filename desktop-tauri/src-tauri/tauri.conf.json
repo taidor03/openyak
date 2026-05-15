@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../frontend/out",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "npm --prefix .. run build:frontend && npm --prefix .. run build:backend",
+    "beforeBuildCommand": "",
     "beforeDevCommand": ""
   },
   "app": {
@@ -32,7 +32,7 @@
     ],
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://[::1]:* https://*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://[::1]:* https://*; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*; font-src 'self' data:; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:"
     }
   },
   "bundle": {
@@ -40,7 +40,7 @@
     "targets": [
       "nsis"
     ],
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -50,8 +50,8 @@
       "icons/icon.png"
     ],
     "resources": {
-      "../../backend/dist/openyak-backend": "backend",
-      "../../backend/resources/nodejs": "nodejs"
+      "/Users/roubin/gitdata/xflow-desktop/backend/dist/openyak-backend/": "backend/",
+      "/Users/roubin/gitdata/xflow-desktop/backend/resources/nodejs/": "nodejs/"
     },
     "windows": {
       "webviewInstallMode": {
@@ -64,7 +64,7 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": "Developer ID Application: wangzhang wu (46KF5Z549N)",
+      "signingIdentity": null,
       "dmg": {
         "appPosition": {
           "x": 180,

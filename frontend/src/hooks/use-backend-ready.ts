@@ -13,6 +13,10 @@ export interface BackendStartupInfo {
 
 export type BackendReadyPhase = "connecting" | "ready" | "done";
 
+/** Module-level flag: once the backend is confirmed ready, all future hook
+ *  instances skip polling entirely (handles unmount/remount on page nav). */
+let _backendWasReady = false;
+
 // Time-bucketed stage labels shown while the backend is still starting up.
 // These are intentionally approximate — real stages happen before HTTP is
 // available; we just give the user a sense of progress based on elapsed time.
@@ -48,7 +52,7 @@ const POLL_INTERVAL_MS = 1_500;
  */
 export function useBackendReady(): UseBackendReadyResult {
   const [phase, setPhase] = useState<BackendReadyPhase>(
-    IS_DESKTOP ? "connecting" : "done",
+    IS_DESKTOP && !_backendWasReady ? "connecting" : "done",
   );
   const [connectingStage, setConnectingStage] =
     useState<ConnectingStageKey>("starting");
@@ -62,6 +66,7 @@ export function useBackendReady(): UseBackendReadyResult {
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
+    if (_backendWasReady) return; // already confirmed — skip polling entirely
 
     cancelled.current = false;
     startedAt.current = Date.now();
@@ -92,6 +97,7 @@ export function useBackendReady(): UseBackendReadyResult {
             ready: boolean;
           };
           if (!cancelled.current) {
+            _backendWasReady = true;
             setInfo(data);
             setPhase("ready");
             readyTimer.current = setTimeout(() => {
