@@ -133,7 +133,11 @@ function ConnectorsTab({ search }: { search: string }) {
   const [showAdd, setShowAdd] = useState(false);
 
   const connectors = data?.connectors ?? {};
-  const entries = Object.entries(connectors);
+  // Built-in zero-auth MCPs and user-configured MCPs are managed in the dedicated MCP tab
+  const allEntries = Object.entries(connectors);
+  const entries = allEntries.filter(
+    ([, c]) => !c.referenced_by?.includes("__builtin__") && c.source !== "user-config",
+  );
   const connectedCount = entries.filter(([, c]) => c.status === "connected").length;
 
   const filtered = search

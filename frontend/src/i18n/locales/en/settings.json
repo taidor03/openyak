@@ -232,6 +232,7 @@
   "endpointNamePlaceholder": "Endpoint Name (e.g. My Local Model)",
   "apiKeyPlaceholderOptional": "API Key (Leave blank if not required)",
   "addEndpoint": "Add Endpoint",
+  "tabMcp": "MCP",
   "tabXflow": "xflow",
   "xflowApiUrl": "xflow API URL",
   "xflowApiToken": "xflow API Token",

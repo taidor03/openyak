@@ -30,10 +30,9 @@ export function BackendReadyIndicator() {
   if (phase === "done") return null;
 
   if (phase === "connecting") {
-    const label =
-      t(`backendStage_${connectingStage}`, {
-        defaultValue: STAGE_FALLBACKS[connectingStage],
-      }) + "…";
+    const label = t(`backendStage_${connectingStage}`, {
+      defaultValue: STAGE_FALLBACKS[connectingStage],
+    });
 
     return (
       <div className="flex items-center gap-1.5 select-none" aria-live="polite">

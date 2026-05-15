@@ -12,7 +12,7 @@ export interface ConnectorInfo {
   status: "connected" | "disconnected" | "needs_auth" | "failed" | "disabled";
   error: string | null;
   tools_count: number;
-  source: "builtin" | "custom";
+  source: "builtin" | "custom" | "user-config";
   no_auth_required: boolean;
   referenced_by: string[];
 }

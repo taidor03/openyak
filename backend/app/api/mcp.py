@@ -1,13 +1,10 @@
-"""MCP server management endpoints (legacy — delegates to ConnectorRegistry).
-
-New code should use /api/connectors/ endpoints instead.
-"""
+"""MCP server management endpoints."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/mcp")
@@ -136,3 +133,35 @@ async def mcp_disconnect(name: str, request: Request) -> dict[str, Any]:
         return {"success": False, "error": "MCP not configured"}
     success = await manager.disconnect_auth(name)
     return {"success": success, "servers": manager.status()}
+
+
+# ------------------------------------------------------------------
+# User-editable MCP config (.openyak/mcp-servers.json)
+# ------------------------------------------------------------------
+
+
+class McpUserConfigBody(BaseModel):
+    mcpServers: dict[str, Any] = {}
+
+
+@router.get("/user-config")
+async def get_user_mcp_config(request: Request) -> dict[str, Any]:
+    """Return the current user-defined MCP server configuration."""
+    registry = _get_registry(request)
+    if registry is None:
+        return {"mcpServers": {}}
+    return registry.load_user_mcp_config()
+
+
+@router.put("/user-config")
+async def set_user_mcp_config(body: McpUserConfigBody, request: Request) -> dict[str, Any]:
+    """Save user-defined MCP config and hot-reload connectors (no app restart needed)."""
+    registry = _get_registry(request)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="Connector system not available")
+
+    config = {"mcpServers": body.mcpServers}
+    registry.save_user_mcp_config(config)
+    await registry.apply_user_mcps(config)
+
+    return {"success": True, "connectors": registry.status()}

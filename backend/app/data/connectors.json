@@ -284,12 +284,6 @@
     "category": "search",
     "no_auth_required": true
   },
-  "ignidor-web-search": {
-    "name": "Ignidor Web Search",
-    "description": "Unlimited DuckDuckGo search with BM25 ranking, full-page crawling, and YouTube transcript extraction — zero API key, no rate limits. Requires Node.js.",
-    "category": "search",
-    "no_auth_required": true
-  },
   "context7": {
     "name": "Context7",
     "description": "Up-to-date official documentation and code examples for open-source libraries — no API key required",

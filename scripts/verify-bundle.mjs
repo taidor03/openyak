@@ -200,14 +200,50 @@ async function smokeTest(bin, port) {
     crashCode = code;
   });
 
-  // Poll /m (mobile PWA entry) up to 30 s
-  let ok = false;
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
+  // Phase 1: wait for /health to respond (lightweight — available before MCP
+  // connections complete, so this succeeds much earlier than /m would under load).
+  // Budget: 60 s total, 500 ms poll interval.
+  let healthy = false;
+  const healthDeadline = Date.now() + 60_000;
+  while (Date.now() < healthDeadline) {
     if (crashed) break;
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/m`, {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, {
         signal: AbortSignal.timeout(2000),
+      });
+      if (res.status === 200) {
+        healthy = true;
+        break;
+      }
+    } catch {
+      // not up yet
+    }
+    await delay(500);
+  }
+
+  if (!healthy) {
+    child.kill("SIGTERM");
+    await delay(500);
+    if (!child.killed) child.kill("SIGKILL");
+    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    if (crashed) {
+      console.error(`\n[verify-bundle] smoke FAILED: backend exited (code ${crashCode}) before /health responded`);
+    } else {
+      console.error("\n[verify-bundle] smoke FAILED: /health never returned 200 OK within 60 s");
+    }
+    console.error("--- last backend output ---");
+    console.error(logs.join("").slice(-4000));
+    exit(1);
+  }
+
+  // Phase 2: /health is up, immediately verify /m serves the frontend HTML.
+  // This is the regression guard from v1.0.7 (missing frontend_out bundle).
+  // Since the process is already running /m should respond on the first try.
+  let ok = false;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/m`, {
+        signal: AbortSignal.timeout(3000),
       });
       if (res.status === 200) {
         const body = await res.text();
@@ -217,7 +253,7 @@ async function smokeTest(bin, port) {
         }
       }
     } catch {
-      // not up yet
+      // brief delay then retry
     }
     await delay(500);
   }
@@ -231,16 +267,8 @@ async function smokeTest(bin, port) {
     // best-effort cleanup
   }
 
-  if (crashed && !ok) {
-    console.error(
-      `\n[verify-bundle] smoke FAILED: backend exited (code ${crashCode}) before serving /m`,
-    );
-    console.error("--- last backend output ---");
-    console.error(logs.join("").slice(-4000));
-    exit(1);
-  }
   if (!ok) {
-    console.error("\n[verify-bundle] smoke FAILED: /m never returned 200 OK");
+    console.error("\n[verify-bundle] smoke FAILED: /m did not return HTML (frontend_out may be missing)");
     console.error("--- last backend output ---");
     console.error(logs.join("").slice(-4000));
     exit(1);

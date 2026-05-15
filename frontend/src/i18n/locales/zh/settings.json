@@ -232,6 +232,7 @@
   "endpointNamePlaceholder": "端点名称（例如：我的本地模型）",
   "apiKeyPlaceholderOptional": "API 密钥（如不需要可留空）",
   "addEndpoint": "添加端点",
+  "tabMcp": "MCP",
   "tabXflow": "xflow",
   "xflowApiUrl": "xflow API 地址",
   "xflowApiToken": "xflow API Token",

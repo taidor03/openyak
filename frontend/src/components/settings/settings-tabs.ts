@@ -8,6 +8,7 @@ import {
   Brain,
   ShieldCheck,
   LayoutDashboard,
+  Server,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -22,6 +23,7 @@ export const SETTINGS_TABS = [
   { id: "providers", icon: Cpu, labelKey: "tabProviders" },
   { id: "permissions", icon: ShieldCheck, labelKey: "tabPermissions" },
   { id: "automations", icon: Timer, labelKey: "tabAutomations" },
+  { id: "mcp", icon: Server, labelKey: "tabMcp" },
   { id: "plugins", icon: Plug, labelKey: "tabPlugins" },
   { id: "remote", icon: Wifi, labelKey: "tabRemote" },
   { id: "usage", icon: BarChart3, labelKey: "tabUsage" },

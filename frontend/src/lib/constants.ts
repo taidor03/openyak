@@ -318,6 +318,7 @@ export const API = {
     AUTH_START: (name: string) => `/api/mcp/${name}/auth-start` as const,
     AUTH_CALLBACK: (name: string) => `/api/mcp/${name}/auth-callback` as const,
     DISCONNECT: (name: string) => `/api/mcp/${name}/disconnect` as const,
+    USER_CONFIG: "/api/mcp/user-config",
   },
   GOOGLE: {
     AUTH_START: "/api/google/auth-start",
@@ -404,6 +405,7 @@ export const queryKeys = {
   localProvider: ["localProvider"] as const,
   ollamaStatus: ["ollamaStatus"] as const,
   connectors: ["connectors"] as const,
+  mcpConfig: ["mcpConfig"] as const,
   channels: ["channels"] as const,
   channelStatus: ["channelStatus"] as const,
   plugins: {

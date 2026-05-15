@@ -73,6 +73,26 @@ export function WindowTopIcons() {
             <Button
               variant="ghost"
               size="icon"
+              className={`h-7 w-7 rounded-lg transition-colors ${
+                showArchived
+                  ? "text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+              aria-label={showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
+              onClick={() => setShowArchived(!showArchived)}
+            >
+              <Archive className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-7 w-7 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]"
               onClick={() => setSearchModalOpen(true)}
               aria-label={t("searchChats")}
@@ -97,26 +117,6 @@ export function WindowTopIcons() {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{t("newChat")}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`h-7 w-7 rounded-lg transition-colors ${
-                showArchived
-                  ? "text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]"
-              }`}
-              aria-label={showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
-              onClick={() => setShowArchived(!showArchived)}
-            >
-              <Archive className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
-          </TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

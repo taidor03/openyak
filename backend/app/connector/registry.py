@@ -73,6 +73,12 @@ class ConnectorRegistry:
 
         self._persisted_state = self._load_state()
 
+        # User-editable MCP config file (hot-reloadable without rebuild)
+        if project_dir:
+            self._user_mcp_config_path = Path(project_dir).resolve() / ".openyak" / "mcp-servers.json"
+        else:
+            self._user_mcp_config_path = Path.home() / ".openyak" / "mcp-servers.json"
+
         # Load static catalog (enriched metadata for known connectors)
         self._catalog = self._load_catalog()
 
@@ -156,8 +162,7 @@ class ConnectorRegistry:
         """Register zero-config built-in MCPs (no API key or OAuth required).
 
         Local stdio MCPs (require Node.js / npx):
-        - open-websearch        multi-engine search (Bing/Baidu/DDG/Brave/CSDN/Juejin)
-        - ignidor-web-search    DuckDuckGo + BM25 ranking + YouTube transcripts
+        - open-websearch        multi-engine search, default Bing, request-only (no Playwright)
 
         Remote MCPs (no installation required):
         - context7              library documentation
@@ -172,14 +177,11 @@ class ConnectorRegistry:
                 "type": "local",
                 "local_config": {
                     "command": ["npx", "-y", "open-websearch@latest"],
-                    "environment": {"MODE": "stdio"},
-                },
-            },
-            {
-                "id": "ignidor-web-search",
-                "type": "local",
-                "local_config": {
-                    "command": ["npx", "-y", "@ignidor/web-search-mcp@latest"],
+                    "environment": {
+                        "MODE": "stdio",
+                        "DEFAULT_SEARCH_ENGINE": "bing",
+                        "SEARCH_MODE": "request",  # request-only; no Playwright fallback
+                    },
                 },
             },
             # --- remote (zero install) ---
@@ -276,6 +278,163 @@ class ConnectorRegistry:
         self._persist_state()
 
         return True
+
+    # ------------------------------------------------------------------
+    # User-editable MCP config file (.openyak/mcp-servers.json)
+    # ------------------------------------------------------------------
+
+    def load_user_mcp_config(self) -> dict:
+        """Load user-defined MCP servers from .openyak/mcp-servers.json."""
+        if not self._user_mcp_config_path.is_file():
+            return {"mcpServers": {}}
+        try:
+            data = json.loads(self._user_mcp_config_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("Cannot read user MCP config: %s", e)
+        return {"mcpServers": {}}
+
+    def save_user_mcp_config(self, config: dict) -> None:
+        """Persist user MCP config to .openyak/mcp-servers.json."""
+        try:
+            self._user_mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+            self._user_mcp_config_path.write_text(
+                json.dumps(config, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            logger.warning("Cannot save user MCP config: %s", e)
+
+    def register_user_mcps(self, config: dict) -> None:
+        """Register user-defined MCPs from config at startup (no connections yet).
+
+        Called before startup() so the connectors appear in the MCP manager's
+        config dict and will be connected when startup() runs.
+        """
+        servers = config.get("mcpServers", {})
+        for name, server_cfg in servers.items():
+            if not isinstance(server_cfg, dict):
+                continue
+            if name in self._connectors:
+                continue  # don't override existing
+
+            server_type = server_cfg.get("type", "remote")
+            url = server_cfg.get("url", "")
+
+            if server_type == "remote" and not url:
+                continue
+
+            local_cfg: dict[str, Any] = {}
+            if server_type == "local":
+                command = server_cfg.get("command", [])
+                if not command:
+                    continue
+                local_cfg["command"] = command
+                if "env" in server_cfg:
+                    local_cfg["environment"] = server_cfg["env"]
+
+            connector = ConnectorInfo(
+                id=name,
+                name=server_cfg.get("name", name),
+                url=url,
+                type=server_type,
+                description=server_cfg.get("description", ""),
+                category=server_cfg.get("category", "custom"),
+                enabled=name in self._persisted_state.get("enabled", []),
+                source="user-config",
+                no_auth_required=True,
+                local_config=local_cfg,
+            )
+            self._connectors[name] = connector
+
+    async def apply_user_mcps(self, new_config: dict) -> None:
+        """Hot-reload user MCPs: disconnect old ones, register new ones, reconnect enabled."""
+        # 1. Close and remove old user-config clients from MCP manager
+        old_ids = [cid for cid, c in self._connectors.items() if c.source == "user-config"]
+
+        if self._mcp_manager:
+            for cid in old_ids:
+                client = self._mcp_manager._clients.get(cid)
+                if client:
+                    try:
+                        await client.close()
+                    except Exception:
+                        pass
+                    del self._mcp_manager._clients[cid]
+                self._mcp_manager._config.pop(cid, None)
+
+        for cid in old_ids:
+            self._connectors.pop(cid, None)
+
+        # 2. Register new connectors from config
+        servers = new_config.get("mcpServers", {})
+        new_ids: list[str] = []
+
+        for name, server_cfg in servers.items():
+            if not isinstance(server_cfg, dict):
+                continue
+
+            server_type = server_cfg.get("type", "remote")
+            url = server_cfg.get("url", "")
+
+            if server_type == "remote" and not url:
+                continue
+
+            local_cfg: dict[str, Any] = {}
+            if server_type == "local":
+                command = server_cfg.get("command", [])
+                if not command:
+                    continue
+                local_cfg["command"] = command
+                if "env" in server_cfg:
+                    local_cfg["environment"] = server_cfg["env"]
+
+            connector = ConnectorInfo(
+                id=name,
+                name=server_cfg.get("name", name),
+                url=url,
+                type=server_type,
+                description=server_cfg.get("description", ""),
+                category=server_cfg.get("category", "custom"),
+                enabled=name in self._persisted_state.get("enabled", []),
+                source="user-config",
+                no_auth_required=True,
+                local_config=local_cfg,
+            )
+            self._connectors[name] = connector
+            new_ids.append(name)
+
+            # Add config entry to MCP manager so reconnect() can find it
+            if self._mcp_manager:
+                if server_type == "local":
+                    built_env = _build_local_env(local_cfg.get("environment"))
+                    self._mcp_manager._config[name] = {
+                        "type": "local",
+                        "enabled": connector.enabled,
+                        "no_auth_required": True,
+                        "command": local_cfg["command"],
+                        "environment": built_env,
+                    }
+                else:
+                    self._mcp_manager._config[name] = {
+                        "type": "remote",
+                        "url": url,
+                        "enabled": connector.enabled,
+                        "no_auth_required": True,
+                    }
+
+        # 3. Connect enabled new connectors
+        if self._mcp_manager:
+            for cid in new_ids:
+                if self._connectors[cid].enabled:
+                    try:
+                        await self._mcp_manager.reconnect(cid)
+                    except Exception as e:
+                        logger.warning("Failed to connect user MCP '%s': %s", cid, e)
+
+        # 4. Sync tool registry
+        self.sync_tools()
 
     # ------------------------------------------------------------------
     # Lifecycle

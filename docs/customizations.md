@@ -728,3 +728,88 @@ frontend 加载（即时，来自本地静态缓存）
 - 若后端已在运行时重新打开软件：`/startup-status` 立即返回，`connecting` 阶段几乎不可见，直接显示 `就绪` 后消失。
 - Web / Remote 模式下组件不渲染（`IS_DESKTOP` 为 false 时 hook 直接返回 `done`）。
 
+---
+
+## XFLOW-015 MCP 管理页（动态增删，无需重新编译）
+
+### 背景
+
+此前，所有 MCP 服务器配置都硬编码在 `backend/app/connector/registry.py` 或插件的 `.mcp.json` 文件中，修改任何 MCP 都需要重新编译打包软件。
+
+### 目标
+
+在设置页面增加专属 **MCP** 标签页，让用户可以：
+
+1. 查看并启用/禁用内置零配置 MCP（Context7、Grep.app、open-websearch）。
+2. 通过 JSON 编辑器自由添加、编辑、删除自定义 MCP 服务器（远程 URL 或本地 stdio 命令皆可）。
+3. 保存后**立即热重载**，无需重启软件。
+4. 链接器（Connectors）标签页只保留需要 OAuth/令牌认证的服务集成，不再显示零配置 MCP 和用户自定义 MCP。
+
+### 实现方案
+
+#### 持久化文件
+
+用户自定义 MCP 配置持久化到 **`.openyak/mcp-servers.json`**（与项目目录或 `~/.openyak/` 同级），格式遵循 Claude Desktop / Cursor 惯例：
+
+```json
+{
+  "mcpServers": {
+    "my-remote-mcp": {
+      "type": "remote",
+      "url": "https://example.com/mcp"
+    },
+    "my-local-mcp": {
+      "type": "local",
+      "command": ["npx", "-y", "some-mcp@latest"],
+      "env": { "API_KEY": "your-key" }
+    }
+  }
+}
+```
+
+#### 后端热重载流程
+
+`PUT /api/mcp/user-config` 处理器：
+
+1. 接收新的 `mcpServers` JSON。
+2. 调用 `registry.save_user_mcp_config(config)` 写入文件。
+3. 调用 `registry.apply_user_mcps(config)` 热重载：
+   - 断开并移除旧的 `source="user-config"` 客户端。
+   - 注册新 ConnectorInfo（`source="user-config"`, `no_auth_required=True`）。
+   - 向 `McpManager._config` 注入新条目（含 `_build_local_env` 路径增强）。
+   - 对已启用的新连接器调用 `reconnect()`。
+   - 刷新工具注册表。
+
+#### 前端 JSON 编辑器
+
+- `<textarea>` + 实时 JSON 解析校验（行内错误提示）。
+- **格式化**按钮对 JSON 美化排版。
+- **保存并重载**按钮提交到后端。
+- 调用 `api.put(API.MCP.USER_CONFIG, {mcpServers})` → 保存成功后同时刷新 `mcpConfig` 和 `connectors` 查询缓存。
+
+### 涉及文件
+
+| 文件 | 变更 |
+|------|------|
+| `backend/app/connector/registry.py` | 新增 `_user_mcp_config_path`、`load_user_mcp_config()`、`save_user_mcp_config()`、`register_user_mcps()`（同步，供启动时调用）、`apply_user_mcps()`（异步，热重载） |
+| `backend/app/api/mcp.py` | 新增 `GET /api/mcp/user-config` 和 `PUT /api/mcp/user-config` 端点 |
+| `backend/app/main.py` | 启动时调用 `register_user_mcps()` 加载已保存的用户配置 |
+| `frontend/src/lib/constants.ts` | `API.MCP.USER_CONFIG`、`queryKeys.mcpConfig` |
+| `frontend/src/types/connectors.ts` | `source` 联合类型扩展 `"user-config"` |
+| `frontend/src/hooks/use-mcp-config.ts`（新增） | `useMcpConfig()`、`useSaveMcpConfig()` |
+| `frontend/src/components/settings/mcp-tab.tsx`（新增） | MCP 管理标签页：内置 MCP 开关 + JSON 编辑器 + 自定义连接器状态 |
+| `frontend/src/components/settings/settings-tabs.ts` | 添加 `mcp` 标签页（Server 图标） |
+| `frontend/src/components/settings/settings-layout.tsx` | 渲染 `<McpTab />` |
+| `frontend/src/i18n/locales/zh/settings.json` | `tabMcp: "MCP"` |
+| `frontend/src/i18n/locales/en/settings.json` | `tabMcp: "MCP"` |
+| `frontend/src/app/(main)/plugins/content.tsx` | 链接器标签页过滤掉 `__builtin__` 和 `user-config` 来源的连接器 |
+
+### 验收
+
+- 设置页面出现 **MCP** 标签（Server 图标），位于"插件"标签之前。
+- 内置三个搜索 MCP（Context7、Grep.app、open-websearch）在 MCP 标签页中显示开关和连接状态，不再出现在链接器标签页。
+- JSON 编辑器：输入不合法 JSON 时显示错误提示，"保存并重载"按钮禁用。
+- 保存合法配置后，新 MCP 立即出现在"自定义服务器状态"列表中，无需重启软件。
+- 自定义 MCP 的启用/禁用可通过状态列表的开关控制，状态持久化到 `.openyak/connectors.json`。
+- 用户配置持久化到 `.openyak/mcp-servers.json`，软件重启后自动加载。
+
