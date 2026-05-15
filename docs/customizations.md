@@ -670,3 +670,61 @@
 - 归档视图切换：不影响普通列表缓存内容。
 - `localStorage` 中可见键 `xflow:sessions_v1`，内含 `data`（数组）和 `updatedAt`（时间戳）。
 
+---
+
+## XFLOW-014 后端启动状态指示器
+
+### 背景与目标
+
+桌面端前端 UI 从本地缓存即时加载，而 PyInstaller 后端进程尚在启动（加载模型、插件、MCP 等需约 5–30 s）。用户无从感知后端是否就绪，可能误以为软件已完全可用。
+
+目标：在聊天头部最右侧显示后端各启动阶段的实时状态，完全就绪后自动消失。
+
+### 实现方案
+
+**生命周期**
+
+```
+frontend 加载（即时，来自本地静态缓存）
+  └─ BackendReadyIndicator 挂载
+        ├─ phase="connecting"：每 1.5s 轮询 /startup-status
+        │     └─ 同时按耗时显示时间桶阶段标签（正在启动 / 加载模型 / 加载插件 / 连接 MCP / 即将就绪）
+        └─ 首次响应成功 → phase="ready"：展示 3.5s（绿色 ✓ + 提供商/插件/工具计数）
+              └─ 3.5s 后 → phase="done"：组件返回 null，从 DOM 中消失
+```
+
+**视觉状态**
+
+| 阶段 | 样式 | 文本示例 |
+|------|------|----------|
+| `connecting` | 橙色脉冲双环 + animate-pulse 文字 | `正在启动…` / `加载插件…` |
+| `ready` | 绿色 CheckCircle2 + fade-in | `✓ 就绪 · 3 个提供商 · 16 个插件 · 35 个工具` |
+| `done` | 不渲染（null） | — |
+
+**阶段时间桶（近似，仅视觉反馈）**
+
+| 耗时 | 阶段标签 |
+|------|---------|
+| 0–5 s | 正在启动 |
+| 5–12 s | 加载模型 |
+| 12–22 s | 加载插件 |
+| 22–38 s | 连接 MCP |
+| 38 s+ | 即将就绪 |
+
+### 新增 / 修改文件
+
+| 文件 | 改动 |
+| ---- | ---- |
+| `backend/app/api/health.py` | 新增 `GET /startup-status` 端点，返回 `{ ready, providers, plugins, mcp_connected, tools }` |
+| `frontend/src/lib/constants.ts` | 在 `API` 对象中加 `STARTUP_STATUS: "/startup-status"` |
+| `frontend/src/hooks/use-backend-ready.ts`（新增） | `useBackendReady()` hook：轮询、阶段状态机、auto-done 定时器 |
+| `frontend/src/components/chat/backend-ready-indicator.tsx`（新增） | `BackendReadyIndicator` 组件，三阶段渲染 |
+| `frontend/src/components/chat/chat-header.tsx` | 在 header 最右侧引入 `<BackendReadyIndicator />` |
+
+### 验收
+
+- 冷启动时，聊天头部最右侧出现橙色脉冲 + 阶段文字。
+- 后端就绪后转绿色 ✓ + 提供商/插件/工具数量，持续约 3.5 s 后自动消失。
+- 若后端已在运行时重新打开软件：`/startup-status` 立即返回，`connecting` 阶段几乎不可见，直接显示 `就绪` 后消失。
+- Web / Remote 模式下组件不渲染（`IS_DESKTOP` 为 false 时 hook 直接返回 `done`）。
+

@@ -367,6 +367,7 @@ export const API = {
     EXPORT: "/api/workspace-memory/export",
   },
   HEALTH: "/health",
+  STARTUP_STATUS: "/startup-status",
   REMOTE: {
     ENABLE: "/api/remote/enable",
     DISABLE: "/api/remote/disable",
