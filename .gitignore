@@ -1,0 +1,94 @@
+# ── AI / IDE tool folders ──────────────────────────────────────────
+.agent/
+.kiro/
+.opencode/
+.trae/
+.codeartsdoer/
+.arts/
+.joycode/
+.catpaw/
+.cursor/
+.agents/
+.codebuddy/
+.workbuddy/
+.windsurf/
+.claude/
+.gemini/
+.superpowers/
+
+# ── Generic tooling ────────────────────────────────────────────────
+.swarm/
+.idea/
+.vscode/
+.vscode-remote/
+*.code-workspace
+
+# ── Node / Frontend ────────────────────────────────────────────────
+node_modules/
+.npm/
+.yarn/
+.pnpm-store/
+.cache/
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# ── Python / Backend ───────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+target/
+venv/
+.venv/
+env/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Rust / Tauri ──────────────────────────────────────────────────
+desktop-tauri/target/
+desktop-tauri/Winget/
+
+# ── OS / System ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Misc ──────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.pid
+*.seed
+*.pid.lock
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Secrets / keys ────────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# ── Installers / bundles ──────────────────────────────────────────
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
+*.AppImage
