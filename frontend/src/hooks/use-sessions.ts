@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
+import { readSessionsCache, writeSessionsCache } from "@/lib/session-cache";
 import type { SessionResponse, SessionCreate, SessionSearchResult } from "@/types/session";
 
 const PAGE_SIZE = 50;
@@ -18,11 +19,25 @@ function useDebouncedValue(value: string, delay: number) {
 }
 
 export function useSessions() {
+  const cache = readSessionsCache();
   return useInfiniteQuery({
     queryKey: queryKeys.sessions.all,
-    queryFn: ({ pageParam = 0 }) =>
-      api.get<SessionResponse[]>(API.SESSIONS.LIST(PAGE_SIZE, pageParam)),
+    queryFn: async ({ pageParam = 0 }) => {
+      const data = await api.get<SessionResponse[]>(API.SESSIONS.LIST(PAGE_SIZE, pageParam));
+      // Write first-page snapshot immediately so next startup gets fresh-enough data.
+      // The complete multi-page snapshot is written by SessionList once all pages load.
+      if (pageParam === 0) writeSessionsCache(data);
+      return data;
+    },
     initialPageParam: 0,
+    // Seed the query with cached data so the sidebar renders on first paint.
+    initialData: cache
+      ? { pages: [cache.data], pageParams: [0] }
+      : undefined,
+    // staleTime = 0: cached data is immediately considered stale so a background
+    // refetch starts right away, while the UI continues to show cached rows.
+    staleTime: 0,
+    initialDataUpdatedAt: cache?.updatedAt,
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
     refetchOnReconnect: true,

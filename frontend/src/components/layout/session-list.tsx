@@ -8,6 +8,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { API, queryKeys } from "@/lib/constants";
 import { api } from "@/lib/api";
+import { writeSessionsCache } from "@/lib/session-cache";
 import { useChatStore } from "@/stores/chat-store";
 import { useSidebarStore } from "@/stores/sidebar-store";
 import { useSessions, useArchivedSessions, useDeleteSession, useRenameSession, usePinSession, useArchiveSession, useUnarchiveSession, useSearchSessions } from "@/hooks/use-sessions";
@@ -74,6 +75,14 @@ export function SessionList() {
     }
     return unique;
   }, [sessionPages]);
+
+  // Write a complete session snapshot to localStorage once all pages have loaded.
+  // This ensures the cache reflects the full list (not just page 0) for next startup.
+  useEffect(() => {
+    if (!showArchived && !hasNextPage && !isFetchingNextPage && sessions.length > 0) {
+      writeSessionsCache(sessions);
+    }
+  }, [showArchived, hasNextPage, isFetchingNextPage, sessions]);
 
   // Roving tabindex: track which session item is focused
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);

@@ -42,7 +42,8 @@
 | XFLOW-009 | 项目行快速新建对话               | `target`   | 前端    | `frontend/src/components/layout/session-list.tsx`（`ProjectRow`）、`frontend/src/app/(main)/c/new/new-chat-page-client.tsx`                 | 项目行悬停显示 `+` 按钮，点击后直接以该项目目录创建新对话；不影响折叠/展开交互            |
 | XFLOW-010 | 项目级技能发现与使用              | `target`   | 后端/会话 | `backend/app/skill/registry.py`、`backend/app/session/*`、`backend/app/tool/builtin/skill.py`                                               | 项目对话可发现并使用项目下 `.cursor/skills` 和 `.openyak/skills` 的技能 |
 | XFLOW-011 | 内置 superpowers 插件       | `target`   | 后端/插件 | `backend/app/data/plugins/*`、`backend/app/plugin/*`、`backend/app/data/skills_catalog.json`                                                | 插件列表可见 superpowers，启用后相关 skills/agents 可用              |
-| XFLOW-012 | Provider 与模型本地缓存         | `target`   | 前端      | `frontend/src/lib/provider-cache.ts`、`frontend/src/hooks/use-providers.ts`、`frontend/src/hooks/use-models.ts`                               | 重启后 Settings / 模型选择器立即显示已缓存数据，无加载闪烁                    |
+| XFLOW-012 | Provider 与模型本地缓存         | `done`     | 前端      | `frontend/src/lib/provider-cache.ts`、`frontend/src/hooks/use-providers.ts`、`frontend/src/hooks/use-models.ts`                               | 重启后 Settings / 模型选择器立即显示已缓存数据，无加载闪烁                    |
+| XFLOW-013 | 会话列表本地缓存                | `done`     | 前端      | `frontend/src/lib/session-cache.ts`、`frontend/src/hooks/use-sessions.ts`、`frontend/src/components/layout/session-list.tsx`                  | 重启后侧边栏立即显示上次会话列表，后台静默刷新，无加载闪烁                         |
 
 
 ## 3. XFLOW-001 内容工作台
@@ -618,4 +619,54 @@
 4. 对高冲突文件只做最小必要改动，避免把旧版本结构强行带入新版本。
 5. 若目标版本已经提供等价能力，标记为 `obsolete` 或改为轻量适配，不再重复实现。
 6. 迁移完成后更新本文件状态和验收结果。
+
+---
+
+## 17. XFLOW-013 会话列表本地缓存
+
+### 目标
+
+在软件本地（`localStorage`）缓存完整的会话列表，重启后侧边栏立即呈现上次加载的会话，后台静默与后端同步，用户无感知加载等待。
+
+### 设计原则
+
+| 原则 | 说明 |
+| ---- | ---- |
+| 即时渲染 | 缓存数据作为 TanStack Query `initialData` 注入，首屏无骨架屏闪烁 |
+| 立即同步 | `staleTime = 0`：缓存数据被视为立即过期，挂载后马上触发后台 refetch |
+| 完整快照 | 所有分页全部加载完毕后，将扁平化完整列表写入缓存（非仅首页） |
+| 首页兜底 | `queryFn` 每次获取第 0 页时同步写一次缓存，保证即使分页未完全加载也能更新 |
+| 变更联动 | 所有 mutation（新建 / 重命名 / 置顶 / 归档 / 删除）已通过 `invalidateQueries` 触发 refetch，缓存随之更新 |
+| 仅缓存普通列表 | 归档视图（`showArchived = true`）不写入缓存，避免污染主列表快照 |
+
+### 同步时序
+
+```
+软件启动
+  └─ readSessionsCache() → initialData → 侧边栏立即渲染
+  └─ staleTime=0 → 后台 refetch 立即开始
+        ├─ page 0 到达 → writeSessionsCache(page0) + 渲染更新
+        ├─ page 1..N 到达（若有） → 渲染更新
+        └─ 全部页完成（hasNextPage=false）→ writeSessionsCache(全量)
+
+用户操作（增删改归档）
+  └─ mutation.onSettled → invalidateQueries
+        └─ refetch page 0 → writeSessionsCache(page0) → 渲染更新
+```
+
+### 预期新增 / 修改文件
+
+| 文件 | 改动 |
+| ---- | ---- |
+| `frontend/src/lib/session-cache.ts`（新增） | `readSessionsCache` / `writeSessionsCache`，localStorage 版本化存储 |
+| `frontend/src/hooks/use-sessions.ts` | `useSessions` 注入 `initialData`、`initialDataUpdatedAt`、`staleTime = 0`；`queryFn` page 0 写缓存 |
+| `frontend/src/components/layout/session-list.tsx` | `useEffect` 监听 `hasNextPage` + `isFetchingNextPage`，全量加载完成后写完整快照 |
+
+### 验收
+
+- 冷启动（后端尚未就绪）：侧边栏立即显示上次缓存的会话列表，无骨架屏。
+- 后端就绪后：列表静默更新为最新数据（若有变化）。
+- 新建 / 重命名 / 置顶 / 归档 / 删除任一会话后：缓存在下次 refetch 完成后自动更新。
+- 归档视图切换：不影响普通列表缓存内容。
+- `localStorage` 中可见键 `xflow:sessions_v1`，内含 `data`（数组）和 `updatedAt`（时间戳）。
 
