@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../../frontend/out",
     "devUrl": "http://localhost:3000",
-    "beforeBuildCommand": "",
+    "beforeBuildCommand": "npm --prefix .. run build:frontend && npm --prefix .. run build:backend",
     "beforeDevCommand": ""
   },
   "app": {
@@ -40,7 +40,7 @@
     "targets": [
       "nsis"
     ],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -50,8 +50,8 @@
       "icons/icon.png"
     ],
     "resources": {
-      "/Users/roubin/gitdata/xflow-desktop/backend/dist/openyak-backend/": "backend/",
-      "/Users/roubin/gitdata/xflow-desktop/backend/resources/nodejs/": "nodejs/"
+      "../../backend/dist/openyak-backend": "backend",
+      "../../backend/resources/nodejs": "nodejs"
     },
     "windows": {
       "webviewInstallMode": {
@@ -64,7 +64,7 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": null,
+      "signingIdentity": "Developer ID Application: wangzhang wu (46KF5Z549N)",
       "dmg": {
         "appPosition": {
           "x": 180,
