@@ -44,6 +44,7 @@
 | XFLOW-011 | 内置 superpowers 插件       | `target`   | 后端/插件 | `backend/app/data/plugins/*`、`backend/app/plugin/*`、`backend/app/data/skills_catalog.json`                                                | 插件列表可见 superpowers，启用后相关 skills/agents 可用              |
 | XFLOW-012 | Provider 与模型本地缓存         | `done`     | 前端      | `frontend/src/lib/provider-cache.ts`、`frontend/src/hooks/use-providers.ts`、`frontend/src/hooks/use-models.ts`                               | 重启后 Settings / 模型选择器立即显示已缓存数据，无加载闪烁                    |
 | XFLOW-013 | 会话列表本地缓存                | `done`     | 前端      | `frontend/src/lib/session-cache.ts`、`frontend/src/hooks/use-sessions.ts`、`frontend/src/components/layout/session-list.tsx`                  | 重启后侧边栏立即显示上次会话列表，后台静默刷新，无加载闪烁                         |
+| XFLOW-016 | 精简内置链接器列表               | `done`     | 后端      | `backend/app/data/connectors.json`                                                                                                        | 链接器页仅显示保留的 10 个连接器；已移除 CRM、分析、营销、销售、法务、运营、知识库、生物研究类目 |
 
 
 ## 3. XFLOW-001 内容工作台
@@ -812,4 +813,80 @@ frontend 加载（即时，来自本地静态缓存）
 - 保存合法配置后，新 MCP 立即出现在"自定义服务器状态"列表中，无需重启软件。
 - 自定义 MCP 的启用/禁用可通过状态列表的开关控制，状态持久化到 `.openyak/connectors.json`。
 - 用户配置持久化到 `.openyak/mcp-servers.json`，软件重启后自动加载。
+
+---
+
+## XFLOW-016 精简内置链接器列表
+
+### 背景
+
+上游 OpenYak 默认内置了 40+ 个链接器，覆盖通讯、生产力、开发工具、设计、CRM、分析、营销、销售、数据、法务、运营、知识库、生物研究等类目，对于 xflow-desktop 业务场景存在大量无关噪音。
+
+### 目标
+
+裁剪 `backend/app/data/connectors.json`，仅保留与 xflow 研发与内容运营相关的链接器，移除所有业务无关类目。
+
+### 保留清单
+
+| 类目 | 保留连接器 |
+|------|-----------|
+| communication | Slack |
+| productivity | Notion |
+| dev-tools | GitHub、Datadog |
+| design | Figma、Canva |
+| data | BigQuery |
+| search（零配置） | Open WebSearch、Context7、Grep.app |
+
+### 移除类目
+
+| 类目 | 移除的连接器 |
+|------|------------|
+| productivity（其余） | Linear、Asana、ClickUp、Monday.com、Fireflies、Google Workspace、Microsoft 365 |
+| dev-tools（其余） | Atlassian、PagerDuty |
+| crm | HubSpot、Intercom、Close、Outreach |
+| analytics | Amplitude、Amplitude (EU)、SimilarWeb、Pendo、Supermetrics |
+| marketing | Klaviyo、Ahrefs |
+| sales | ZoomInfo、Apollo、Clay |
+| data（其余） | Hex、Definite |
+| legal | DocuSign、Box、Egnyte |
+| operations | ServiceNow |
+| knowledge | Guru |
+| bio-research | BioRender、bioRxiv、Clinical Trials、ChEMBL、Open Targets、Owkin、Synapse、Wiley、PubMed |
+
+### 同步删除的插件
+
+插件目录与被移除的类目一一对应，也需要一并删除：
+
+| 插件目录 | 对应类目 | 主要 MCP 依赖 |
+|---------|---------|-------------|
+| `backend/app/data/plugins/bio-research/` | bio-research | PubMed、BioRender、bioRxiv、ChEMBL、Synapse、Wiley、Owkin、Open Targets |
+| `backend/app/data/plugins/legal/` | legal | DocuSign、Box、Egnyte |
+| `backend/app/data/plugins/marketing/` | marketing | HubSpot、Amplitude、Ahrefs、Klaviyo、Supermetrics、Similarweb |
+| `backend/app/data/plugins/sales/` | sales / crm | HubSpot、Close、Clay、ZoomInfo、Apollo、Outreach |
+| `backend/app/data/plugins/customer-support/` | crm | Intercom、HubSpot、Guru |
+| `backend/app/data/plugins/enterprise-search/` | knowledge | Guru、Atlassian、Asana |
+| `backend/app/data/plugins/operations/` | operations | ServiceNow、Atlassian、Asana |
+
+删除后保留的插件目录：`engineering`、`productivity`、`design`、`data`、`product-management`、`finance`、`human-resources`、`superpowers`、`cowork-plugin-management`。
+
+### 涉及文件
+
+| 文件 / 目录 | 变更 |
+|------------|------|
+| `backend/app/data/connectors.json` | 仅保留上表中的 10 个连接器，删除其余所有条目 |
+| `backend/app/data/plugins/bio-research/` | 整目录删除 |
+| `backend/app/data/plugins/legal/` | 整目录删除 |
+| `backend/app/data/plugins/marketing/` | 整目录删除 |
+| `backend/app/data/plugins/sales/` | 整目录删除 |
+| `backend/app/data/plugins/customer-support/` | 整目录删除 |
+| `backend/app/data/plugins/enterprise-search/` | 整目录删除 |
+| `backend/app/data/plugins/operations/` | 整目录删除 |
+
+### 验收
+
+- 链接器标签页仅显示 Slack、Notion、GitHub、Datadog、Figma、Canva、BigQuery 共 7 个需认证连接器。
+- MCP 标签页内置零配置项仍显示 Open WebSearch、Context7、Grep.app。
+- 插件列表只显示 9 个保留插件，不再出现 bio-research、legal、marketing、sales、customer-support、enterprise-search、operations。
+- 不影响用户自定义 MCP（`user-config` 来源）的添加与热重载功能。
+- 迁移到新上游版本时，若上游新增同类目插件/连接器，按本清单原则决定是否保留。
 
