@@ -13,6 +13,7 @@ import { ProvidersTab } from "@/components/settings/providers-tab";
 import { UsageSkeleton } from "@/components/settings/usage-tab";
 import { MemoryTab } from "@/components/settings/memory-tab";
 import { PermissionsTab } from "@/components/settings/permissions-tab";
+import { XflowTab } from "@/components/settings/xflow-tab";
 import { AutomationsTabContent } from "@/app/(main)/automations/content";
 import { PluginsTabContent } from "@/app/(main)/plugins/content";
 import { RemoteTabContent } from "@/app/(main)/remote/content";
@@ -100,6 +101,7 @@ export default function SettingsPageClient({ initialTab }: SettingsPageClientPro
           {activeTab === "remote" && <RemoteTabContent />}
           {activeTab === "usage" && <UsageTab />}
           {activeTab === "memory" && <MemoryTab />}
+          {activeTab === "xflow" && <XflowTab />}
         </div>
       </div>
     </div>

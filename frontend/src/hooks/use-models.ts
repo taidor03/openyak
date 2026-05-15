@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
+import { readModelsCache, writeModelsCache } from "@/lib/provider-cache";
 import type { ModelInfo } from "@/types/model";
 
 const MODEL_LOAD_TIMEOUT_MS = 60_000;
@@ -20,20 +21,21 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 }
 
 export function useModels() {
+  const cache = readModelsCache();
   return useQuery({
     queryKey: queryKeys.models,
     queryFn: async () => {
-      return withTimeout(
-        (async () => {
-          return api.get<ModelInfo[]>(API.MODELS, {
-            timeoutMs: MODEL_LOAD_TIMEOUT_MS,
-          });
-        })(),
+      const data = await withTimeout(
+        api.get<ModelInfo[]>(API.MODELS, { timeoutMs: MODEL_LOAD_TIMEOUT_MS }),
         MODEL_LOAD_TIMEOUT_MS,
         "Timed out loading models. Check your provider connection, firewall, or VPN settings.",
       );
+      writeModelsCache(data);
+      return data;
     },
     retry: false,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    initialData: cache?.data,
+    initialDataUpdatedAt: cache?.updatedAt,
   });
 }

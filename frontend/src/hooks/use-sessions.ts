@@ -159,6 +159,20 @@ export function useUnarchiveSession() {
   });
 }
 
+export function useArchivedSessions(enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["sessions", "archived"] as const,
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<SessionResponse[]>(API.SESSIONS.LIST(PAGE_SIZE, pageParam, true)),
+    initialPageParam: 0,
+    enabled,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      if (lastPage.length < PAGE_SIZE) return undefined;
+      return lastPageParam + PAGE_SIZE;
+    },
+  });
+}
+
 export function useSearchSessions(query: string) {
   const debouncedQuery = useDebouncedValue(query, 300);
   return useQuery({

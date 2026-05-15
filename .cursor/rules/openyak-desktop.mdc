@@ -1,0 +1,14 @@
+---
+description: Tauri v2 桌面壳与前后端集成（Rust、权限、资源路径）
+globs:
+  - "desktop-tauri/**/*"
+alwaysApply: false
+---
+
+# OpenYak 桌面（Tauri v2 / Rust）
+
+- **代码**：`desktop-tauri/src-tauri/src/`（`main.rs`、`commands.rs`、`window.rs`）；配置 `tauri.conf.json`、capabilities。
+- **与后端**：架构上由 Tauri 管理后端子进程与数据目录；行为细节以 `docs/adr/0001-tauri-spawns-backend-subprocess.md` 与 `backend/app` 中远程/进程相关代码为准。
+- **前端嵌入**：桌面构建依赖 `frontend/out` 静态资源；完整发行版流程见根目录 `scripts/build-release.sh` 与 `npm run build:release*`。
+- **修改权限/系统能力**：同步调整 `capabilities/` 与 `tauri.conf.json`，避免过度放行。
+- **深读**：`docs/development/12-构建与部署.md`、`docs/development/02-架构设计.md`。

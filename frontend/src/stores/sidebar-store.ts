@@ -25,7 +25,10 @@ interface SidebarStore {
   sortBy: SortBy;
   /** Current sidebar width (drag-resizable) */
   width: number;
+  /** Whether the archived-sessions view is active */
+  showArchived: boolean;
   setOpen: (open: boolean) => void;
+  setShowArchived: (show: boolean) => void;
   /** Toggle desktop sidebar collapse */
   toggle: () => void;
   toggleSearch: () => void;
@@ -55,7 +58,9 @@ export const useSidebarStore = create<SidebarStore>()(
       organizeMode: "by-project",
       sortBy: "updated",
       width: SIDEBAR_WIDTH,
+      showArchived: false,
       setOpen: (open) => set({ isOpen: open }),
+      setShowArchived: (show) => set({ showArchived: show }),
       toggle: () => set((s) => ({ isCollapsed: !s.isCollapsed })),
       toggleSearch: () =>
         set((s) => ({

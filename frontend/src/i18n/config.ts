@@ -7,6 +7,7 @@ import enSettings from "./locales/en/settings.json";
 import enUsage from "./locales/en/usage.json";
 import enPlugins from "./locales/en/plugins.json";
 import enAutomations from "./locales/en/automations.json";
+import enContentWorkbench from "./locales/en/contentWorkbench.json";
 
 import zhCommon from "./locales/zh/common.json";
 import zhChat from "./locales/zh/chat.json";
@@ -14,6 +15,7 @@ import zhSettings from "./locales/zh/settings.json";
 import zhUsage from "./locales/zh/usage.json";
 import zhPlugins from "./locales/zh/plugins.json";
 import zhAutomations from "./locales/zh/automations.json";
+import zhContentWorkbench from "./locales/zh/contentWorkbench.json";
 
 i18n.use(initReactI18next).init({
   resources: {
@@ -24,6 +26,7 @@ i18n.use(initReactI18next).init({
       usage: enUsage,
       plugins: enPlugins,
       automations: enAutomations,
+      contentWorkbench: enContentWorkbench,
     },
     zh: {
       common: zhCommon,
@@ -32,24 +35,25 @@ i18n.use(initReactI18next).init({
       usage: zhUsage,
       plugins: zhPlugins,
       automations: zhAutomations,
+      contentWorkbench: zhContentWorkbench,
     },
   },
-  fallbackLng: "en",
-  lng: "en",
+  fallbackLng: "zh",
+  lng: "zh",
   defaultNS: "common",
-  ns: ["common", "chat", "settings", "usage", "plugins", "automations"],
+  ns: ["common", "chat", "settings", "usage", "plugins", "automations", "contentWorkbench"],
   interpolation: {
     escapeValue: false,
   },
 });
 
 export function getClientLanguagePreference(): "en" | "zh" {
-  if (typeof window === "undefined") return "en";
+  if (typeof window === "undefined") return "zh";
 
   const stored = window.localStorage.getItem("openyak-language");
   if (stored === "en" || stored === "zh") return stored;
 
-  return window.navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
+  return window.navigator.language.toLowerCase().startsWith("en") ? "en" : "zh";
 }
 
 export default i18n;

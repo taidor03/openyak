@@ -1,0 +1,33 @@
+---
+description: OpenYak 单仓布局、权威文档索引、与 ADR 入口（全栈协作时始终参照）
+alwaysApply: true
+---
+
+# OpenYak（本仓库）
+
+本地优先 AI 工作台：**Tauri v2 桌面壳** → **Next.js 15 前端** → **FastAPI 后端**（SQLite WAL）。桌面场景下前端为**静态导出**嵌入 WebView；后端由桌面进程拉起子进程（见 `docs/adr/0001-tauri-spawns-backend-subprocess.md`）。
+
+## 目录速查
+
+| 路径 | 职责 |
+|------|------|
+| `backend/app/` | FastAPI：`main.py`、`config.py`、`api/`（路由聚合见 `api/router.py`）、`agent/`、`tool/`、`session/`、`provider/`、`streaming/`、`storage/` 等 |
+| `frontend/src/` | App Router：`app/(main)` 桌面端、`app/(mobile)` 移动端；`components/`、`hooks/`、`stores/`、`lib/api.ts` |
+| `desktop-tauri/src-tauri/` | Rust：`main.rs`、`commands.rs`、`window.rs`；`tauri.conf.json`、capabilities |
+| `scripts/` | `build-frontend.sh` / `build-backend.sh` / `build-release.sh` 等与根 `package.json` 脚本对应 |
+| `docs/development/` | 二次开发主文档：`README.md` 为目录；`01`–`15` 按主题；`12-构建与部署.md` 与脚本对齐时需以**仓库实际命令**为准 |
+
+## 根级 npm 脚本（以 `package.json` 为准）
+
+- 开发：`dev:frontend`、`dev:backend`（默认 `./venv/bin/python`）、`dev:all`、`dev:desktop`
+- 构建：`build:frontend`、`build:backend`、`build:desktop`、`build:release` / `build:release:clean` / `build:release:sign` / `build:release:skip-tauri`
+
+文档中若出现已重命名的脚本，以当前 `package.json` 与 `scripts/*.sh` 为准。
+
+## 架构决策（扩展前必读）
+
+`docs/adr/`：`0003` 消息与 Part、`0007` 路由薄 API 层、`0008` 模块级单例服务等。
+
+## AI 助手约束
+
+改动保持与现有模块边界一致；新增 HTTP 面需在 `backend/app/api/router.py` 注册；新增能力优先查阅 `docs/development/` 对应章节与相关 ADR。

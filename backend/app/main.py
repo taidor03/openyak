@@ -305,7 +305,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             pid = ce["id"]
             if pid in disabled:
                 continue
-            provider = create_desktop_provider(pid, ce.get("api_key", ""), base_url=ce.get("base_url"))
+            provider = create_desktop_provider(
+                pid,
+                ce.get("api_key", ""),
+                base_url=ce.get("base_url"),
+                model_ids=ce.get("model_ids") or [],
+            )
             registry.register(provider)
             byok_registered += 1
             should_refresh_models = True
@@ -570,6 +575,11 @@ def _register_builtin_tools(
 
     # SkillTool needs the skill registry injected
     registry.register(SkillTool(skill_registry=skill_registry))
+
+    # xflow API tools — always registered; tools surface a config error when invoked without credentials
+    from app.tool.builtin.xflow_tools import ALL_XFLOW_TOOLS
+    for xflow_tool_cls in ALL_XFLOW_TOOLS:
+        registry.register(xflow_tool_cls())
 
     if settings is not None and settings.fts_enabled:
         from app.tool.builtin.search import SearchTool

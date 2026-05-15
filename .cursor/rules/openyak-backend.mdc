@@ -1,0 +1,15 @@
+---
+description: FastAPI 后端约定（路由、分层、async、配置）
+globs:
+  - "backend/**/*.py"
+alwaysApply: false
+---
+
+# OpenYak 后端（Python / FastAPI）
+
+- **版本**：以 `backend/pyproject.toml` / 团队环境为准；文档写 Python 3.12+，打包脚本需与当前机器 Python（含 3.13）依赖一致。
+- **入口**：`app.main:create_app`（工厂）；配置集中在 `app/config.py`（Pydantic Settings）。
+- **路由**：各域一个模块导出 `router`，在 `app/api/router.py` 里 `include_router`；保持「薄路由层」，业务在对应子包（见 `docs/adr/0007-route-module-thin-api-layer.md`）。
+- **风格**：优先 **async**；数据库经 SQLAlchemy 2 async；校验用 Pydantic v2。
+- **扩展**：新工具 → `app/tool/` 与注册逻辑；新 Agent → `app/agent/`；持久化与 ORM → `app/models/`、`app/storage/`；流式与 SSE → `app/streaming/`、`app/session/`。
+- **深读**：`docs/development/03-后端开发指南.md`、`05-API接口文档.md`、`07-工具系统开发.md`、`06-Agent系统开发.md`。

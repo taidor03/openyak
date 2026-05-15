@@ -231,5 +231,21 @@
   "customEndpointDesc": "连接本地或远程 OpenAI 兼容端点。端点不需要鉴权时，API 密钥可以留空。",
   "endpointNamePlaceholder": "端点名称（例如：我的本地模型）",
   "apiKeyPlaceholderOptional": "API 密钥（如不需要可留空）",
-  "addEndpoint": "添加端点"
+  "addEndpoint": "添加端点",
+  "tabXflow": "xflow",
+  "xflowApiUrl": "xflow API 地址",
+  "xflowApiToken": "xflow API Token",
+  "xflowApiUrlPlaceholder": "https://your-xflow-api.com",
+  "xflowApiTokenPlaceholder": "Bearer Token",
+  "xflowTestConnection": "测试连接",
+  "xflowTestingConnection": "测试中...",
+  "xflowConnectionSuccess": "连接成功",
+  "xflowConnectionFailed": "连接失败",
+  "xflowSave": "保存配置",
+  "xflowClear": "清除配置",
+  "xflowDesc": "配置 xflow 内容管理 API，启用内容工作台功能。",
+  "endpointModelIds": "模型 ID（可选，逗号分隔）",
+  "endpointModelIdsPlaceholder": "model-a,model-b（留空则自动发现）",
+  "pinnedModels": "已指定",
+  "modelsCount": "{{count}} 个模型"
 }

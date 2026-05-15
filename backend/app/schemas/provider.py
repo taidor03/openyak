@@ -114,6 +114,7 @@ class CustomEndpointCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Endpoint name (1-100 chars)")
     base_url: str = Field(..., min_length=1, description="Base URL for the endpoint")
     api_key: str | None = None
+    model_ids: list[str] | None = None
 
     @field_validator("base_url")
     @classmethod
@@ -131,6 +132,7 @@ class CustomEndpointUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100, description="Endpoint name (1-100 chars)")
     base_url: str | None = Field(None, min_length=1, description="Base URL for the endpoint")
     api_key: str | None = None
+    model_ids: list[str] | None = None
     enabled: bool | None = None
 
     @field_validator("base_url")
@@ -152,6 +154,7 @@ class CustomEndpointConfig(BaseModel):
     name: str
     base_url: str
     api_key: str | None = None
+    model_ids: list[str] | None = None
     enabled: bool = True
 
 
@@ -166,3 +169,4 @@ class ProviderInfo(BaseModel):
     model_count: int = 0
     status: str = "unconfigured"  # "connected" | "error" | "unconfigured" | "disabled"
     base_url: str | None = None
+    model_ids: list[str] = []  # pinned model IDs for custom endpoints; empty = auto-discover

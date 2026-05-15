@@ -19,6 +19,7 @@ def create_provider(
     api_key: str,
     *,
     base_url: str | None = None,
+    model_ids: list[str] | None = None,
 ) -> BaseProvider:
     """Create a desktop provider by ID.
 
@@ -79,6 +80,7 @@ def create_provider(
             base_url=effective_url,
             kind=pdef.kind,
             default_headers=pdef.default_headers or None,
+            model_ids=model_ids or [],
         )
 
     raise ValueError(f"Unknown provider kind: '{pdef.kind}' for provider '{provider_id}'")

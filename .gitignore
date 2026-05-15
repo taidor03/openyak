@@ -7,7 +7,12 @@
 .arts/
 .joycode/
 .catpaw/
-.cursor/
+# Cursor: 版本库保留项目规则与技能；其余本地 Cursor 状态仍忽略
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+!.cursor/skills/
+!.cursor/skills/**
 .agents/
 .codebuddy/
 .workbuddy/

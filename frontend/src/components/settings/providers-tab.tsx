@@ -25,6 +25,7 @@ import { errorToMessage } from "@/lib/errors";
 import { API, IS_DESKTOP, queryKeys } from "@/lib/constants";
 import { desktopAPI } from "@/lib/tauri-api";
 import { useModels } from "@/hooks/use-models";
+import { useProviders } from "@/hooks/use-providers";
 import type {
   ApiKeyStatus,
   ProviderInfo,
@@ -65,10 +66,7 @@ export function ProvidersTab() {
   });
 
   // Multi-provider BYOK status
-  const { data: providers } = useQuery({
-    queryKey: queryKeys.providers,
-    queryFn: () => api.get<ProviderInfo[]>(API.CONFIG.PROVIDERS),
-  });
+  const { data: providers } = useProviders();
 
   const { data: localStatus } = useQuery({
     queryKey: queryKeys.localProvider,
@@ -171,6 +169,7 @@ export function ProvidersTab() {
     {},
   );
   const [customEndpointName, setCustomEndpointName] = useState<string>("");
+  const [customEndpointModelIds, setCustomEndpointModelIds] = useState<string>("");
 
   const updateProviderKey = useMutation({
     mutationFn: async ({
@@ -236,22 +235,26 @@ export function ProvidersTab() {
       name,
       apiKey,
       baseUrl,
+      modelIds,
     }: {
       name: string;
       apiKey?: string;
       baseUrl: string;
+      modelIds?: string[];
     }) => {
       setProviderMutatingId("custom_new");
       return api.post<ProviderInfo>(API.CONFIG.CUSTOM_ENDPOINT, {
         name,
         api_key: apiKey || "",
         base_url: baseUrl,
+        ...(modelIds && modelIds.length > 0 ? { model_ids: modelIds } : {}),
       });
     },
     onSuccess: () => {
       setProviderKeyInputs((prev) => ({ ...prev, ["custom_new"]: "" }));
       setProviderBaseUrlInputs((prev) => ({ ...prev, ["custom_new"]: "" }));
       setCustomEndpointName("");
+      setCustomEndpointModelIds("");
       setProviderError((prev) => {
         const next = { ...prev };
         delete next["custom_new"];
@@ -855,72 +858,107 @@ export function ProvidersTab() {
                       )}
                     </div>
                   )}
-                  {customProviders.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`p-3 border border-[var(--border-primary)] rounded-lg bg-[var(--surface-secondary)] ${!p.enabled ? "opacity-50" : ""}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="font-semibold">
-                            {p.name || t("customEndpoint")}
-                          </span>
-                          <span className="text-[var(--text-secondary)] font-mono ml-2 text-ui-3xs bg-[var(--surface-primary)] px-2 py-0.5 rounded">
-                            {p.base_url}
-                          </span>
-                          {p.masked_key && (
-                            <span className="text-[var(--text-tertiary)] font-mono ml-2 text-ui-3xs">
-                              Key: {p.masked_key}
+                  {customProviders.map((p) => {
+                    const pinnedIds = p.model_ids ?? [];
+                    const hasPinned = pinnedIds.length > 0;
+                    const discoveredModels = (allModels ?? []).filter(
+                      (m) => m.provider_id === p.id,
+                    );
+                    const displayModels = hasPinned
+                      ? pinnedIds.map((id) => ({
+                          id,
+                          name:
+                            discoveredModels.find((m) => m.id === id)?.name ??
+                            id,
+                        }))
+                      : discoveredModels.map((m) => ({ id: m.id, name: m.name }));
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={`p-3 border border-[var(--border-primary)] rounded-lg bg-[var(--surface-secondary)] ${!p.enabled ? "opacity-50" : ""}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs min-w-0">
+                            <span className="font-semibold shrink-0">
+                              {p.name || t("customEndpoint")}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-ui-3xs text-[var(--text-tertiary)]">
-                            {p.model_count} models
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateCustomEndpoint.mutate({
-                                id: p.id,
-                                enabled: !p.enabled,
-                              })
-                            }
-                            disabled={updateCustomEndpoint.isPending}
-                            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                              p.enabled
-                                ? "bg-[var(--color-success)]"
-                                : "bg-[var(--surface-tertiary)]"
-                            }`}
-                            title={
-                              p.enabled
-                                ? t("disableProvider")
-                                : t("enableProvider")
-                            }
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${
-                                p.enabled ? "translate-x-3" : "translate-x-0"
-                              }`}
-                            />
-                          </button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-[var(--color-destructive)] hover:text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10"
-                            onClick={() => deleteCustomEndpoint.mutate(p.id)}
-                            disabled={providerMutatingId === p.id}
-                          >
-                            {providerMutatingId === p.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <LogOut className="h-3 w-3" />
+                            <span className="text-[var(--text-secondary)] font-mono text-ui-3xs bg-[var(--surface-primary)] px-2 py-0.5 rounded truncate max-w-[180px]">
+                              {p.base_url}
+                            </span>
+                            {p.masked_key && (
+                              <span className="text-[var(--text-tertiary)] font-mono text-ui-3xs shrink-0">
+                                Key: {p.masked_key}
+                              </span>
                             )}
-                          </Button>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCustomEndpoint.mutate({
+                                  id: p.id,
+                                  enabled: !p.enabled,
+                                })
+                              }
+                              disabled={updateCustomEndpoint.isPending}
+                              className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                                p.enabled
+                                  ? "bg-[var(--color-success)]"
+                                  : "bg-[var(--surface-tertiary)]"
+                              }`}
+                              title={
+                                p.enabled
+                                  ? t("disableProvider")
+                                  : t("enableProvider")
+                              }
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${
+                                  p.enabled ? "translate-x-3" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-[var(--color-destructive)] hover:text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10"
+                              onClick={() => deleteCustomEndpoint.mutate(p.id)}
+                              disabled={providerMutatingId === p.id}
+                            >
+                              {providerMutatingId === p.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <LogOut className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
+                        {displayModels.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {hasPinned && (
+                              <span className="text-ui-3xs text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 px-1.5 py-0.5 rounded font-medium shrink-0">
+                                {t("pinnedModels")}
+                              </span>
+                            )}
+                            {displayModels.map((m) => (
+                              <span
+                                key={m.id}
+                                className="font-mono text-ui-3xs bg-[var(--surface-primary)] border border-[var(--border)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded"
+                              >
+                                {m.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {displayModels.length === 0 && p.status === "connected" && (
+                          <p className="mt-1 text-ui-3xs text-[var(--text-tertiary)]">
+                            {t("modelsCount", { count: p.model_count })}
+                          </p>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -982,6 +1020,13 @@ export function ProvidersTab() {
                       )}
                     </button>
                   </div>
+                  <Input
+                    type="text"
+                    value={customEndpointModelIds}
+                    onChange={(e) => setCustomEndpointModelIds(e.target.value)}
+                    placeholder={t("endpointModelIds")}
+                    className="font-mono text-xs bg-[var(--surface-primary)]"
+                  />
                   <div className="flex items-center justify-between">
                     {providerError["custom_new"] && (
                       <div className="flex items-center gap-1.5 text-xs text-[var(--color-destructive)]">
@@ -998,6 +1043,10 @@ export function ProvidersTab() {
                           name: customEndpointName || "Custom Endpoint",
                           apiKey: providerKeyInputs["custom_new"] ?? "",
                           baseUrl: providerBaseUrlInputs["custom_new"] ?? "",
+                          modelIds: customEndpointModelIds
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
                         })
                       }
                       disabled={

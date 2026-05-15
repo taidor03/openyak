@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { PanelLeft, Search, SquarePen } from "lucide-react";
+import { Archive, PanelLeft, Search, SquarePen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -35,6 +35,8 @@ export function WindowTopIcons() {
   const isCollapsed = useSidebarStore((s) => s.isCollapsed);
   const toggle = useSidebarStore((s) => s.toggle);
   const setSearchModalOpen = useSidebarStore((s) => s.setSearchModalOpen);
+  const showArchived = useSidebarStore((s) => s.showArchived);
+  const setShowArchived = useSidebarStore((s) => s.setShowArchived);
 
   if (!IS_DESKTOP) return null;
 
@@ -95,6 +97,26 @@ export function WindowTopIcons() {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{t("newChat")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-7 w-7 rounded-lg transition-colors ${
+                showArchived
+                  ? "text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]"
+              }`}
+              aria-label={showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
+              onClick={() => setShowArchived(!showArchived)}
+            >
+              <Archive className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {showArchived ? t("hideArchivedChats") : t("showArchivedChats")}
+          </TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

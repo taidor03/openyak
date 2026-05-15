@@ -36,6 +36,7 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         base_url: str,
         kind: str = "openai_compat",
         default_headers: dict[str, str] | None = None,
+        model_ids: list[str] | None = None,
     ):
         super().__init__(
             api_key=api_key,
@@ -46,6 +47,7 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         self._api_key = api_key
         self._provider_id = provider_id
         self._kind = kind
+        self._pinned_model_ids: list[str] = model_ids or []
         self._models_cache: list[ModelInfo] | None = None
 
     @property
@@ -56,6 +58,20 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         """Return models with metadata. Merges models.dev + yakAgent catalog + API."""
         if self._models_cache is not None:
             return self._models_cache
+
+        # When explicit model IDs are pinned, return synthetic entries without any API calls.
+        if self._pinned_model_ids:
+            models = [
+                ModelInfo(
+                    id=mid,
+                    name=mid,
+                    provider_id=self._provider_id,
+                    capabilities=ModelCapabilities(function_calling=True),
+                )
+                for mid in self._pinned_model_ids
+            ]
+            self._models_cache = models
+            return models
 
         models = []
         seen_ids = set()

@@ -28,7 +28,7 @@ let _backendTokenPromise: Promise<string> | null = null;
 
 /** Direct backend URL for SSE streams (avoids Next.js proxy buffering). */
 const FALLBACK_BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 const WEB_DEV_BACKEND_TOKEN =
   process.env.NEXT_PUBLIC_OPENYAK_DEV_SESSION_TOKEN || "";
 
@@ -229,8 +229,8 @@ export const API = {
   },
   SESSIONS: {
     BASE: "/api/sessions",
-    LIST: (limit = 50, offset = 0) =>
-      `/api/sessions?limit=${limit}&offset=${offset}`,
+    LIST: (limit = 50, offset = 0, includeArchived = false) =>
+      `/api/sessions?limit=${limit}&offset=${offset}${includeArchived ? "&include_archived=true" : ""}`,
     SEARCH: (q: string, limit = 20, offset = 0) =>
       `/api/sessions/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
     DETAIL: (id: string) => `/api/sessions/${id}`,

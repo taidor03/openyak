@@ -231,5 +231,21 @@
   "customEndpointDesc": "Connect local or remote OpenAI-compatible endpoints with full control. API keys are optional when the endpoint does not require one.",
   "endpointNamePlaceholder": "Endpoint Name (e.g. My Local Model)",
   "apiKeyPlaceholderOptional": "API Key (Leave blank if not required)",
-  "addEndpoint": "Add Endpoint"
+  "addEndpoint": "Add Endpoint",
+  "tabXflow": "xflow",
+  "xflowApiUrl": "xflow API URL",
+  "xflowApiToken": "xflow API Token",
+  "xflowApiUrlPlaceholder": "https://your-xflow-api.com",
+  "xflowApiTokenPlaceholder": "Bearer Token",
+  "xflowTestConnection": "Test Connection",
+  "xflowTestingConnection": "Testing...",
+  "xflowConnectionSuccess": "Connection successful",
+  "xflowConnectionFailed": "Connection failed",
+  "xflowSave": "Save Config",
+  "xflowClear": "Clear Config",
+  "xflowDesc": "Configure the xflow content management API to enable the Content Workbench.",
+  "endpointModelIds": "Model IDs (optional, comma-separated)",
+  "endpointModelIdsPlaceholder": "model-a,model-b (leave blank for auto-discovery)",
+  "pinnedModels": "Pinned",
+  "modelsCount": "{{count}} models"
 }

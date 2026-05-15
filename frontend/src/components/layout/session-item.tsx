@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Archive, MessageCircle, Pin, PinOff } from "lucide-react";
+import { Archive, ArchiveRestore, MessageCircle, Pin, PinOff, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
@@ -30,6 +30,7 @@ interface SessionItemProps {
   onExportMarkdown?: (id: string, title: string) => void;
   onTogglePin?: (id: string, pinned: boolean) => void;
   onArchive?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
   isEditing?: boolean;
   onEditStart?: (id: string) => void;
   onEditEnd?: () => void;
@@ -46,6 +47,7 @@ export const SessionItem = memo(function SessionItem({
   onExportMarkdown,
   onTogglePin,
   onArchive,
+  onUnarchive,
   isEditing = false,
   onEditStart,
   onEditEnd,
@@ -339,21 +341,52 @@ export const SessionItem = memo(function SessionItem({
           )}
 
           {!isEditing && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                e.currentTarget.blur();
-                onArchive?.(session.id);
-              }}
-              className={cn(
-                "absolute right-1.5 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-tertiary)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand-primary)] focus-visible:opacity-100 group-hover/session:opacity-100",
-              )}
-              aria-label={t('archiveChat')}
-              title={t('archiveChat')}
-            >
-              <Archive className="h-3.5 w-3.5" />
-            </button>
+            session.time_archived ? (
+              <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/session:opacity-100 focus-within:opacity-100">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.blur();
+                    onUnarchive?.(session.id);
+                  }}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand-primary)]"
+                  aria-label={t('conversationRestored')}
+                  title={t('conversationRestored')}
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.blur();
+                    onDelete(session.id, title);
+                  }}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-red-500/10 hover:text-red-500 focus:outline-none focus-visible:ring-1 focus-visible:ring-red-500"
+                  aria-label={t('deleteConversation')}
+                  title={t('deleteConversation')}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.blur();
+                  onArchive?.(session.id);
+                }}
+                className={cn(
+                  "absolute right-1.5 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-tertiary)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand-primary)] focus-visible:opacity-100 group-hover/session:opacity-100",
+                )}
+                aria-label={t('archiveChat')}
+                title={t('archiveChat')}
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </button>
+            )
           )}
         </div>
       </ContextMenuTrigger>

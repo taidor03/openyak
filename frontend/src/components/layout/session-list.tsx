@@ -10,7 +10,7 @@ import { API, queryKeys } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { useChatStore } from "@/stores/chat-store";
 import { useSidebarStore } from "@/stores/sidebar-store";
-import { useSessions, useDeleteSession, useRenameSession, usePinSession, useArchiveSession, useUnarchiveSession, useSearchSessions } from "@/hooks/use-sessions";
+import { useSessions, useArchivedSessions, useDeleteSession, useRenameSession, usePinSession, useArchiveSession, useUnarchiveSession, useSearchSessions } from "@/hooks/use-sessions";
 import { useActiveSessionId } from "@/hooks/use-active-session-id";
 import { useSessionExport } from "@/hooks/use-session-export";
 import { SessionItem } from "./session-item";
@@ -18,7 +18,7 @@ import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { ProjectsToolbar } from "./projects-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { Check, ChevronRight, Copy, FolderClosed, FolderOpen, Loader2, MessageSquare, SearchX, SquarePen } from "lucide-react";
+import { Archive, Check, ChevronRight, Copy, FolderClosed, FolderOpen, Loader2, MessageSquare, SearchX, SquarePen } from "lucide-react";
 import { getChatRoute } from "@/lib/routes";
 import { cn, groupSessionsByDate, groupSessionsByWorkspace } from "@/lib/utils";
 import type { SessionResponse } from "@/types/session";
@@ -32,6 +32,11 @@ export function SessionList() {
   const { t } = useTranslation('common');
   const router = useRouter();
   const activeSessionId = useActiveSessionId();
+  const showArchived = useSidebarStore((s) => s.showArchived);
+
+  const normalQuery = useSessions();
+  const archivedQuery = useArchivedSessions(showArchived);
+
   const {
     data: sessionPages,
     isLoading,
@@ -40,7 +45,7 @@ export function SessionList() {
     isFetchingNextPage,
     refetch,
     fetchNextPage,
-  } = useSessions();
+  } = showArchived ? archivedQuery : normalQuery;
   const deleteSession = useDeleteSession();
   const renameSession = useRenameSession();
   const pinSession = usePinSession();
@@ -456,6 +461,16 @@ export function SessionList() {
     );
   }, [activeSessionId, archiveSession, router, t, unarchiveSession]);
 
+  const handleUnarchive = useCallback((id: string) => {
+    unarchiveSession.mutate(
+      { id },
+      {
+        onSuccess: () => toast.success(t("conversationRestored")),
+        onError: () => toast.error(t("restoreFailed")),
+      },
+    );
+  }, [unarchiveSession, t]);
+
   const handleEditStart = useCallback((id: string) => {
     setEditingId(id);
   }, []);
@@ -488,6 +503,13 @@ export function SessionList() {
               {t('noMatchingConversations')}
             </p>
           </>
+        ) : showArchived ? (
+          <>
+            <Archive className="h-8 w-8 text-[var(--text-tertiary)]" />
+            <p className="text-xs text-[var(--text-tertiary)] text-center">
+              {t('noArchivedChats')}
+            </p>
+          </>
         ) : (
           <>
             <MessageSquare className="h-8 w-8 text-[var(--text-tertiary)]" />
@@ -507,6 +529,13 @@ export function SessionList() {
 
   return (
     <>
+      {showArchived && (
+        <div className="px-4 py-1 shrink-0">
+          <span className="text-ui-3xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-primary)]">
+            {t("archivedChats")}
+          </span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         role="listbox"
@@ -568,6 +597,7 @@ export function SessionList() {
                     onExportMarkdown={exportMarkdown}
                     onTogglePin={handleTogglePin}
                     onArchive={handleArchive}
+                    onUnarchive={handleUnarchive}
                     isEditing={editingId === item.session.id}
                     onEditStart={handleEditStart}
                     onEditEnd={handleEditEnd}
@@ -694,9 +724,19 @@ function ProjectRow({
             )}
             <span className="flex-1 truncate text-left">{label}</span>
           </button>
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ui-3xs text-[var(--text-tertiary)]">
-            {count}
-          </span>
+          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); startNewChat(); }}
+              title={t("startNewChatInProject")}
+              className="opacity-0 group-hover/project:opacity-100 rounded p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] transition-opacity"
+            >
+              <SquarePen className="h-3 w-3" />
+            </button>
+            <span className="text-ui-3xs text-[var(--text-tertiary)] w-4 text-right">
+              {count}
+            </span>
+          </div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">

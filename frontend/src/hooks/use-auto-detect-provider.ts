@@ -8,9 +8,9 @@ import {
 } from "@/stores/settings-store";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
+import { useProviders } from "@/hooks/use-providers";
 import type {
   ApiKeyStatus,
-  ProviderInfo,
   LocalProviderStatus,
 } from "@/types/usage";
 
@@ -43,10 +43,7 @@ export function useAutoDetectProvider(): { hasProvider: boolean } {
     queryFn: () => api.get<ApiKeyStatus>(API.CONFIG.API_KEY),
   });
 
-  const { data: providers } = useQuery({
-    queryKey: queryKeys.providers,
-    queryFn: () => api.get<ProviderInfo[]>(API.CONFIG.PROVIDERS),
-  });
+  const { data: providers } = useProviders();
 
   const { data: localStatus } = useQuery({
     queryKey: queryKeys.localProvider,

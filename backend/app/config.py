@@ -57,9 +57,13 @@ class Settings(BaseSettings):
     # --- Database ---
     database_url: str = "sqlite+aiosqlite:///./data/openyak.db"
 
+    # --- xflow API ---
+    xflow_api_url: str = ""    # OPENYAK_XFLOW_API_URL
+    xflow_api_token: str = ""  # OPENYAK_XFLOW_API_TOKEN
+
     # --- Server ---
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8090
     debug: bool = False
     # Dev-only fixed session token. Used by npm run dev:all so the Next.js
     # dev server can authenticate browser-originated /api requests without

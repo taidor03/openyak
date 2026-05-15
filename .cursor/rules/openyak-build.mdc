@@ -1,0 +1,17 @@
+---
+description: 构建流水线、PyInstaller 后端包、Tauri 发行版脚本
+globs:
+  - "scripts/**/*.sh"
+  - "package.json"
+  - "backend/openyak.spec"
+  - "backend/**/*.spec"
+alwaysApply: false
+---
+
+# OpenYak 构建与发布
+
+- **单一事实来源**：根 `package.json` 的 `build:*` / `dev:*` 与 `scripts/build-frontend.sh`、`build-backend.sh`、`build-release.sh`。文档 `12-构建与部署.md` 若与脚本不一致，**以脚本为准**并考虑回头改文档。
+- **典型顺序**：前端静态导出 → 后端 PyInstaller →（可选）`sync:desktop-meta` → `cargo tauri build`；一键：`npm run build:release`。
+- **环境**：后端构建可能依赖 `venv`、系统库（如 cairo/expat）；CI 或新机以 `build-backend.sh` / `build-release.sh` 中的注释与重试逻辑为准。
+- **产物**：关注 `frontend/out/`、`backend/dist/`（或 spec 约定目录）、`desktop-tauri/src-tauri/target/**/bundle/`。
+- **勿提交**：大体积安装包、密钥；保持与 `.gitignore` 一致。

@@ -73,6 +73,7 @@ def _build_custom_endpoint_info(
         model_count=model_count,
         status=status,
         base_url=ce.get("base_url"),
+        model_ids=ce.get("model_ids") or [],
     )
 
 
@@ -570,7 +571,8 @@ async def create_custom_endpoint(
             "name": name,
             "base_url": base_url,
             "api_key": api_key,
-            "enabled": True
+            "enabled": True,
+            "model_ids": body.model_ids or [],
         }
         endpoints.append(new_config)
 
@@ -645,6 +647,7 @@ async def update_custom_endpoint(
     base_url = body.base_url if body.base_url is not None else found.get("base_url", "")
     api_key = body.api_key.strip() if body.api_key is not None else found.get("api_key", "")
     enabled = body.enabled if body.enabled is not None else found.get("enabled", True)
+    model_ids = body.model_ids if body.model_ids is not None else found.get("model_ids", [])
 
     # --- Phase 2: validate (outside lock — network I/O) ---
     if needs_rebuild:
@@ -672,6 +675,7 @@ async def update_custom_endpoint(
             "base_url": base_url,
             "api_key": api_key,
             "enabled": enabled,
+            "model_ids": model_ids,
         }
         endpoints[found_idx] = updated_config
 

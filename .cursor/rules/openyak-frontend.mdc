@@ -1,0 +1,15 @@
+---
+description: Next.js 15 前端约定（App Router、静态导出、API 基址）
+globs:
+  - "frontend/**/*.ts"
+  - "frontend/**/*.tsx"
+alwaysApply: false
+---
+
+# OpenYak 前端（Next.js / React / TypeScript）
+
+- **结构**：`src/app/` App Router；`src/app/(main)` 桌面 UI；`src/app/(mobile)` 移动布局。业务组件在 `src/components/`，全局状态 `src/stores/`（Zustand），数据获取/SSE 相关 `src/hooks/`。
+- **桌面静态导出**：`scripts/build-frontend.sh` 设置 `DESKTOP_BUILD=true` 与 `NEXT_PUBLIC_DESKTOP_BUILD=true`，触发 `next.config.ts` 中 `output: "export"` 与 `images.unoptimized`。纯静态产物在 `frontend/out/`（通常勿手改生成物）。
+- **开发期 API**：非桌面构建时 `next.config.ts` 将 `/api/*` 代理到 `NEXT_PUBLIC_API_URL`（默认 `http://localhost:8000`）；与后端联调注意环境变量。
+- **UI**：Tailwind 4 + shadcn/ui 模式；新页面遵循现有布局与路由组。
+- **深读**：`docs/development/04-前端开发指南.md`、`05-API接口文档.md`。
