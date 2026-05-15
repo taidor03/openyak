@@ -23,6 +23,7 @@ class ConnectorInfo:
     category: str  # "communication", "productivity", etc.
     enabled: bool = False
     source: str = "builtin"  # "builtin" | "custom"
+    no_auth_required: bool = False  # True → skip OAuth/token UI and needs_auth promotion
     local_config: dict[str, Any] = field(default_factory=dict)
     referenced_by: list[str] = field(default_factory=list)
 
@@ -37,5 +38,6 @@ class ConnectorInfo:
             "category": self.category,
             "enabled": self.enabled,
             "source": self.source,
+            "no_auth_required": self.no_auth_required,
             "referenced_by": self.referenced_by,
         }

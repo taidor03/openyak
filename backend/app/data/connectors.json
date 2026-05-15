@@ -277,5 +277,29 @@
     "description": "Search biomedical literature and research papers",
     "category": "bio-research",
     "command": ["uvx", "pubmed-mcp"]
+  },
+  "open-websearch": {
+    "name": "Open WebSearch",
+    "description": "Multi-engine web search (Bing / Baidu / DuckDuckGo / Brave / CSDN / Juejin) — zero API key, best Chinese results, full-page extraction. Requires Node.js.",
+    "category": "search",
+    "no_auth_required": true
+  },
+  "ignidor-web-search": {
+    "name": "Ignidor Web Search",
+    "description": "Unlimited DuckDuckGo search with BM25 ranking, full-page crawling, and YouTube transcript extraction — zero API key, no rate limits. Requires Node.js.",
+    "category": "search",
+    "no_auth_required": true
+  },
+  "context7": {
+    "name": "Context7",
+    "description": "Up-to-date official documentation and code examples for open-source libraries — no API key required",
+    "category": "search",
+    "no_auth_required": true
+  },
+  "grep-app": {
+    "name": "Grep.app",
+    "description": "Lightning-fast code pattern search across millions of public GitHub repositories — no API key required",
+    "category": "search",
+    "no_auth_required": true
   }
 }

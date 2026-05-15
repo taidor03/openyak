@@ -303,7 +303,7 @@ function ConnectorRow({
           <span className="text-xs font-medium text-[var(--text-primary)]">
             {connector.name}
           </span>
-          {connector.type === "local" && id !== "google-workspace" && (
+          {connector.type === "local" && id !== "google-workspace" && !connector.no_auth_required && (
             <span className="text-ui-3xs px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
               {t("localSetup")}
             </span>
@@ -326,7 +326,7 @@ function ConnectorRow({
 
       {/* Action buttons */}
       <div className="flex items-center gap-1.5 shrink-0">
-        {connector.status === "needs_auth" && (
+        {connector.status === "needs_auth" && !connector.no_auth_required && (
           <Button
             variant="outline"
             size="sm"
@@ -343,7 +343,7 @@ function ConnectorRow({
           </Button>
         )}
 
-        {(connector.status === "needs_auth" || connector.status === "failed") && connector.enabled && (
+        {(connector.status === "needs_auth" || connector.status === "failed") && connector.enabled && !connector.no_auth_required && (
           <form
             className="flex items-center gap-1"
             onSubmit={(e) => {
@@ -408,13 +408,13 @@ function ConnectorRow({
           checked={connector.enabled}
           onCheckedChange={async (checked) => {
             await toggle.mutateAsync({ id, enable: checked });
-            if (checked && (connector.type === "remote" || id === "google-workspace")) {
-              // Remote or Google: auto-trigger OAuth after enable
+            if (checked && !connector.no_auth_required && (connector.type === "remote" || id === "google-workspace")) {
+              // Remote or Google (needs OAuth): auto-trigger OAuth after enable
               await new Promise((r) => setTimeout(r, 500));
               await qc.invalidateQueries({ queryKey: queryKeys.connectors });
               handleConnect();
             } else if (checked) {
-              // Local: just refresh status
+              // Local or zero-auth: just refresh status
               await new Promise((r) => setTimeout(r, 1000));
               await qc.invalidateQueries({ queryKey: queryKeys.connectors });
             }

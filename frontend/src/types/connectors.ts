@@ -13,6 +13,7 @@ export interface ConnectorInfo {
   error: string | null;
   tools_count: number;
   source: "builtin" | "custom";
+  no_auth_required: boolean;
   referenced_by: string[];
 }
 

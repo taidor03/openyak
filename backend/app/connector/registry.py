@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -21,6 +22,38 @@ from app.mcp.tool_wrapper import McpToolWrapper
 from app.tool.base import ToolDefinition
 
 logger = logging.getLogger(__name__)
+
+# Common Node.js binary directories that may be absent from a Tauri app's stripped PATH.
+# Augmenting PATH ensures npx/node can be found even when the app is launched
+# from the macOS Dock or a double-click (which bypasses shell profile scripts).
+_NODE_EXTRA_PATHS = [
+    "/opt/homebrew/bin",                             # Homebrew on Apple Silicon
+    "/usr/local/bin",                                # Homebrew on Intel / system node
+    os.path.expanduser("~/.volta/bin"),              # Volta
+    os.path.expanduser("~/.nvm/current/bin"),        # nvm (via default-packages symlink)
+    os.path.expanduser("~/.fnm/default/bin"),        # fnm
+]
+
+
+def _build_local_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Build a subprocess env for local MCP servers (stdio/npx/uvx).
+
+    Starts from the current process env so nothing is lost, then prepends any
+    known Node.js binary directories not already in PATH, and finally applies
+    connector-specific overrides (e.g. MODE=stdio for open-websearch).
+
+    Without this, passing env={MODE: stdio} to StdioServerParameters would
+    completely replace the subprocess environment and strip PATH, making npx
+    unreachable.
+    """
+    env = dict(os.environ)
+    current_path = env.get("PATH", "")
+    extra_dirs = [d for d in _NODE_EXTRA_PATHS if os.path.isdir(d) and d not in current_path]
+    if extra_dirs:
+        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + current_path
+    if extra:
+        env.update(extra)
+    return env
 
 
 class ConnectorRegistry:
@@ -101,6 +134,7 @@ class ConnectorRegistry:
                 category=catalog_entry.get("category", "other"),
                 enabled=connector_id in self._persisted_state.get("enabled", []),
                 source="builtin",
+                no_auth_required=bool(catalog_entry.get("no_auth_required", False)),
                 local_config=(
                     {
                         k: v
@@ -117,6 +151,76 @@ class ConnectorRegistry:
             connector_ids.append(connector_id)
 
         return connector_ids
+
+    def register_builtin_mcps(self) -> None:
+        """Register zero-config built-in MCPs (no API key or OAuth required).
+
+        Local stdio MCPs (require Node.js / npx):
+        - open-websearch        multi-engine search (Bing/Baidu/DDG/Brave/CSDN/Juejin)
+        - ignidor-web-search    DuckDuckGo + BM25 ranking + YouTube transcripts
+
+        Remote MCPs (no installation required):
+        - context7              library documentation
+        - grep-app              GitHub code search
+
+        All start disabled unless the user has previously enabled them.
+        """
+        builtin_specs: list[dict] = [
+            # --- local stdio (needs Node.js / npx) ---
+            {
+                "id": "open-websearch",
+                "type": "local",
+                "local_config": {
+                    "command": ["npx", "-y", "open-websearch@latest"],
+                    "environment": {"MODE": "stdio"},
+                },
+            },
+            {
+                "id": "ignidor-web-search",
+                "type": "local",
+                "local_config": {
+                    "command": ["npx", "-y", "@ignidor/web-search-mcp@latest"],
+                },
+            },
+            # --- remote (zero install) ---
+            {
+                "id": "context7",
+                "type": "remote",
+                "url": "https://mcp.context7.com/mcp",
+            },
+            {
+                "id": "grep-app",
+                "type": "remote",
+                "url": "https://mcp.grep.app",
+            },
+        ]
+
+        for spec in builtin_specs:
+            cid = spec["id"]
+            server_type = spec.get("type", "remote")
+            url = spec.get("url", "")
+
+            # Skip if already registered (dedup by ID; remote also checks by URL)
+            if cid in self._connectors:
+                continue
+            if server_type == "remote" and self._find_by_url(url):
+                continue
+
+            catalog_entry = self._catalog.get(cid, {})
+            connector = ConnectorInfo(
+                id=cid,
+                name=catalog_entry.get("name", cid.replace("-", " ").title()),
+                url=url,
+                type=server_type,
+                description=catalog_entry.get("description", ""),
+                category=catalog_entry.get("category", "search"),
+                enabled=cid in self._persisted_state.get("enabled", []),
+                source="builtin",
+                no_auth_required=True,
+                local_config=spec.get("local_config", {}),
+                referenced_by=["__builtin__"],
+            )
+            self._connectors[cid] = connector
 
     def register_custom(
         self,
@@ -201,16 +305,22 @@ class ConnectorRegistry:
         mcp_config: dict[str, Any] = {}
         for cid, connector in self._connectors.items():
             if connector.type == "local":
+                local_cfg = dict(connector.local_config)
+                # Always build a proper env so PATH is never accidentally stripped.
+                # Merges: current process env → common Node.js dirs → connector overrides.
+                local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
                 mcp_config[cid] = {
                     "type": "local",
                     "enabled": connector.enabled,
-                    **connector.local_config,
+                    "no_auth_required": connector.no_auth_required,
+                    **local_cfg,
                 }
             else:
                 mcp_config[cid] = {
                     "type": "remote",
                     "url": connector.url,
                     "enabled": connector.enabled,
+                    "no_auth_required": connector.no_auth_required,
                 }
 
         self._mcp_manager = McpManager(mcp_config, project_dir=self._project_dir)
