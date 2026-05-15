@@ -15,6 +15,7 @@
 .claude/
 .gemini/
 .superpowers/
+.openyak/
 
 # ── Generic tooling ────────────────────────────────────────────────
 .swarm/
@@ -50,7 +51,6 @@ venv/
 .venv/
 env/
 .env
-.env.*
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -92,3 +92,5 @@ credentials.json
 *.deb
 *.rpm
 *.AppImage
+
+openyak-1.1.10.zip
