@@ -25,6 +25,7 @@ export function useMcpConfig() {
     queryKey: queryKeys.mcpConfig,
     queryFn: () => api.get<McpUserConfig>(API.MCP.USER_CONFIG),
     staleTime: 30_000,
+    meta: { persist: true },
   });
 }
 

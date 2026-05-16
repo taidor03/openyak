@@ -16,6 +16,7 @@ export function usePluginsStatus() {
     queryFn: () => api.get<PluginsStatusResponse>(API.PLUGINS.STATUS),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    meta: { persist: true },
   });
 }
 
@@ -34,6 +35,7 @@ export function useSkills() {
     queryFn: () => api.get<SkillInfo[]>(API.SKILLS.LIST),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    meta: { persist: true },
   });
 }
 
