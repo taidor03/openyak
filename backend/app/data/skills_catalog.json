@@ -1,7 +1,7 @@
 {
   "generated_at": 1777062684,
   "source": "skillsmp.com (multi-query scrape: 4 queries × 2 sorts × up to 6 pages × 50)",
-  "count": 1887,
+  "count": 1886,
   "skills": [
     {
       "id": "openclaw-openclaw-skills-apple-notes-skill-md",
@@ -982,16 +982,6 @@
       "skillUrl": "https://skillsmp.com/skills/affaan-m-everything-claude-code-docs-zh-cn-skills-configure-ecc-skill-md",
       "stars": 162855,
       "updatedAt": "1776224548"
-    },
-    {
-      "id": "obra-superpowers-skills-executing-plans-skill-md",
-      "name": "executing-plans",
-      "author": "obra",
-      "description": "Use when you have a written implementation plan to execute in a separate session with review checkpoints",
-      "githubUrl": "https://github.com/obra/superpowers/tree/main/skills/executing-plans",
-      "skillUrl": "https://skillsmp.com/skills/obra-superpowers-skills-executing-plans-skill-md",
-      "stars": 162007,
-      "updatedAt": "1772997615"
     },
     {
       "id": "f-prompts-chat-plugins-claude-prompts-chat-skills-skill-lookup-skill-md",
