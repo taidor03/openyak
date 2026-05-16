@@ -64,6 +64,9 @@ export const SessionItem = memo(function SessionItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLParagraphElement>(null);
+  // Guards against immediate blur when the context menu closes
+  // right after "Rename" was selected (menuClose steals focus).
+  const editJustStarted = useRef(false);
 
   const rawTitle = session.title || t('newConversation');
   // Clean up ugly channel titles: "Channel: whatsapp:+1234567890" → "+1234567890"
@@ -89,6 +92,7 @@ export const SessionItem = memo(function SessionItem({
   useEffect(() => {
     if (isEditing && inputRef.current) {
       setEditValue(title);
+      editJustStarted.current = true;
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -118,6 +122,17 @@ export const SessionItem = memo(function SessionItem({
     }
     onEditEnd?.();
   }, [editValue, title, session.id, onRename, onEditEnd]);
+
+  const handleBlur = useCallback(() => {
+    // Context menu closing steals focus right after editing starts;
+    // re-focus the input and ignore this spurious blur.
+    if (editJustStarted.current) {
+      editJustStarted.current = false;
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
+    handleSubmitRename();
+  }, [handleSubmitRename]);
 
   const handleCancelRename = useCallback(() => {
     setEditValue(title);
@@ -296,7 +311,7 @@ export const SessionItem = memo(function SessionItem({
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                onBlur={handleSubmitRename}
+                onBlur={handleBlur}
                 onClick={(e) => e.stopPropagation()}
                 className="w-full border-b border-[var(--brand-primary)] bg-transparent py-0.5 text-sm text-[var(--text-primary)] outline-none"
               />

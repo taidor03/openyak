@@ -159,27 +159,12 @@ class ConnectorRegistry:
         return connector_ids
 
     def register_builtin_mcps(self) -> None:
-        """Register zero-config built-in MCPs (no API key or OAuth required).
+        """Register zero-config built-in MCPs.
 
-        Remote MCPs (no installation required):
-        - context7              library documentation
-        - grep-app              GitHub code search
-
-        All start disabled unless the user has previously enabled them.
+        Currently no built-in MCPs — all MCP servers are user-configured
+        via the Settings UI or .openyak/mcp-servers.json.
         """
-        builtin_specs: list[dict] = [
-            # --- remote (zero install) ---
-            {
-                "id": "context7",
-                "type": "remote",
-                "url": "https://mcp.context7.com/mcp",
-            },
-            {
-                "id": "grep-app",
-                "type": "remote",
-                "url": "https://mcp.grep.app",
-            },
-        ]
+        builtin_specs: list[dict] = []
 
         for spec in builtin_specs:
             cid = spec["id"]

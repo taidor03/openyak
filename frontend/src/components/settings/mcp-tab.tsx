@@ -17,7 +17,6 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  WifiOff,
   Terminal,
   Globe,
   Plus,
@@ -489,28 +488,19 @@ export function McpTab() {
 
   return (
     <div className="space-y-8">
-      {/* Built-in MCPs */}
+      {/* Built-in MCPs — hide section when there are none */}
+      {builtinMcps.length > 0 && (
       <section>
         <div className="mb-4">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">内置搜索 MCP</h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">
-            零配置、无需 API Key 的内置搜索工具。本地工具需要系统已安装 Node.js。
-          </p>
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">内置MCP</h2>
         </div>
-
-        {builtinMcps.length === 0 ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] py-4">
-            <WifiOff className="h-4 w-4" />
-            暂无内置 MCP（后端启动中...）
-          </div>
-        ) : (
-          <div className="rounded-lg border border-[var(--border-primary)] px-4 divide-y divide-[var(--border-primary)]">
-            {builtinMcps.map(([id, connector]) => (
-              <BuiltinMcpRow key={id} id={id} connector={connector} />
-            ))}
-          </div>
-        )}
+        <div className="rounded-lg border border-[var(--border-primary)] px-4 divide-y divide-[var(--border-primary)]">
+          {builtinMcps.map(([id, connector]) => (
+            <BuiltinMcpRow key={id} id={id} connector={connector} />
+          ))}
+        </div>
       </section>
+      )}
 
       {/* Custom MCPs */}
       <CustomMcpSection connectorsData={data?.connectors} />

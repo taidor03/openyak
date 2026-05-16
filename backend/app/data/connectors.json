@@ -40,17 +40,5 @@
     "url": "https://bigquery.googleapis.com/mcp",
     "description": "Query data warehouses and run SQL analytics",
     "category": "data"
-  },
-  "context7": {
-    "name": "Context7",
-    "description": "Up-to-date official documentation and code examples for open-source libraries — no API key required",
-    "category": "search",
-    "no_auth_required": true
-  },
-  "grep-app": {
-    "name": "Grep.app",
-    "description": "Lightning-fast code pattern search across millions of public GitHub repositories — no API key required",
-    "category": "search",
-    "no_auth_required": true
   }
 }
