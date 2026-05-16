@@ -741,7 +741,7 @@ frontend 加载（即时，来自本地静态缓存）
 
 在设置页面增加专属 **MCP** 标签页，让用户可以：
 
-1. 查看并启用/禁用内置零配置 MCP（Context7、Grep.app、open-websearch）。
+1. 查看并启用/禁用内置零配置 MCP（Context7、Grep.app）。
 2. 通过 JSON 编辑器自由添加、编辑、删除自定义 MCP 服务器（远程 URL 或本地 stdio 命令皆可）。
 3. 保存后**立即热重载**，无需重启软件。
 4. 链接器（Connectors）标签页只保留需要 OAuth/令牌认证的服务集成，不再显示零配置 MCP 和用户自定义 MCP。
@@ -808,7 +808,7 @@ frontend 加载（即时，来自本地静态缓存）
 ### 验收
 
 - 设置页面出现 **MCP** 标签（Server 图标），位于"插件"标签之前。
-- 内置三个搜索 MCP（Context7、Grep.app、open-websearch）在 MCP 标签页中显示开关和连接状态，不再出现在链接器标签页。
+- 内置搜索 MCP（Context7、Grep.app）在 MCP 标签页中显示开关和连接状态，不再出现在链接器标签页。
 - JSON 编辑器：输入不合法 JSON 时显示错误提示，"保存并重载"按钮禁用。
 - 保存合法配置后，新 MCP 立即出现在"自定义服务器状态"列表中，无需重启软件。
 - 自定义 MCP 的启用/禁用可通过状态列表的开关控制，状态持久化到 `.openyak/connectors.json`。
@@ -835,7 +835,7 @@ frontend 加载（即时，来自本地静态缓存）
 | dev-tools | GitHub、Datadog |
 | design | Figma、Canva |
 | data | BigQuery |
-| search（零配置） | Open WebSearch、Context7、Grep.app |
+| search（零配置） | Context7、Grep.app |
 
 ### 移除类目
 
@@ -885,7 +885,7 @@ frontend 加载（即时，来自本地静态缓存）
 ### 验收
 
 - 链接器标签页仅显示 Slack、Notion、GitHub、Datadog、Figma、Canva、BigQuery 共 7 个需认证连接器。
-- MCP 标签页内置零配置项仍显示 Open WebSearch、Context7、Grep.app。
+- MCP 标签页内置零配置项仍显示 Context7、Grep.app。
 - 插件列表只显示 9 个保留插件，不再出现 bio-research、legal、marketing、sales、customer-support、enterprise-search、operations。
 - 不影响用户自定义 MCP（`user-config` 来源）的添加与热重载功能。
 - 迁移到新上游版本时，若上游新增同类目插件/连接器，按本清单原则决定是否保留。

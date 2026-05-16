@@ -41,12 +41,6 @@
     "description": "Query data warehouses and run SQL analytics",
     "category": "data"
   },
-  "open-websearch": {
-    "name": "Open WebSearch",
-    "description": "Multi-engine web search (Bing / Baidu / DuckDuckGo / Brave / CSDN / Juejin) — zero API key, best Chinese results, full-page extraction. Requires Node.js.",
-    "category": "search",
-    "no_auth_required": true
-  },
   "context7": {
     "name": "Context7",
     "description": "Up-to-date official documentation and code examples for open-source libraries — no API key required",

@@ -354,7 +354,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     connector_registry = ConnectorRegistry(project_dir=settings.project_dir)
 
-    # Register built-in zero-config MCPs (Context7, Grep.app, open-websearch, ignidor-web-search)
+    # Register built-in zero-config MCPs (Context7, Grep.app)
     connector_registry.register_builtin_mcps()
 
     # Register user-defined MCPs from .openyak/mcp-servers.json (hot-reloadable)

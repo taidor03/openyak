@@ -195,7 +195,9 @@ if (IS_DESKTOP && typeof window !== "undefined") {
 export function getBackendUrlSync(): string {
   if (IS_DESKTOP) {
     if (!_backendUrl) {
-      throw new Error("Desktop backend URL is not ready yet");
+      // Backend URL not yet cached — return empty string.  Callers
+      // should handle this gracefully (e.g. skip SSE during startup).
+      return "";
     }
     return _backendUrl;
   }
@@ -210,7 +212,11 @@ export function getBackendUrlSync(): string {
 export function resolveApiUrl(path: string): string {
   if (IS_DESKTOP) {
     if (!_backendUrl) {
-      throw new Error("Desktop backend URL is not ready yet");
+      // Backend URL not yet cached — return a relative path.  API
+      // calls will fail while the BackendReadyIndicator shows
+      // "正在启动服务"; once the backend-ready event fires the
+      // URL is cached and calls succeed.
+      return path;
     }
     return `${_backendUrl}${path}`;
   }

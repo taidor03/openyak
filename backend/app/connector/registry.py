@@ -40,7 +40,7 @@ def _build_local_env(extra: dict[str, str] | None = None) -> dict[str, str]:
 
     Starts from the current process env so nothing is lost, then prepends any
     known Node.js binary directories not already in PATH, and finally applies
-    connector-specific overrides (e.g. MODE=stdio for open-websearch).
+    connector-specific overrides (e.g. environment variables for local MCP servers).
 
     Without this, passing env={MODE: stdio} to StdioServerParameters would
     completely replace the subprocess environment and strip PATH, making npx
@@ -161,9 +161,6 @@ class ConnectorRegistry:
     def register_builtin_mcps(self) -> None:
         """Register zero-config built-in MCPs (no API key or OAuth required).
 
-        Local stdio MCPs (require Node.js / npx):
-        - open-websearch        multi-engine search, default Bing, request-only (no Playwright)
-
         Remote MCPs (no installation required):
         - context7              library documentation
         - grep-app              GitHub code search
@@ -171,19 +168,6 @@ class ConnectorRegistry:
         All start disabled unless the user has previously enabled them.
         """
         builtin_specs: list[dict] = [
-            # --- local stdio (needs Node.js / npx) ---
-            {
-                "id": "open-websearch",
-                "type": "local",
-                "local_config": {
-                    "command": ["npx", "-y", "open-websearch@latest"],
-                    "environment": {
-                        "MODE": "stdio",
-                        "DEFAULT_SEARCH_ENGINE": "bing",
-                        "SEARCH_MODE": "request",  # request-only; no Playwright fallback
-                    },
-                },
-            },
             # --- remote (zero install) ---
             {
                 "id": "context7",

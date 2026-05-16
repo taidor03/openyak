@@ -10,8 +10,8 @@ use crate::{backend::BackendState, tray, PendingNavigationState};
 #[tauri::command]
 pub async fn get_backend_url(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     let url = state.url().await;
-    // Port 0 means the backend hasn't started yet — the frontend should
-    // retry rather than cache a broken URL.
+    // Port 0 means the backend hasn't started yet — don't let the
+    // frontend cache a dead URL that the /livez poll can't use.
     if url.ends_with(":0") {
         return Err("Backend not yet ready".to_string());
     }
