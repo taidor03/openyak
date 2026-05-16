@@ -368,6 +368,8 @@ export const API = {
     EXPORT: "/api/workspace-memory/export",
   },
   HEALTH: "/health",
+  /** Public liveness probe — no auth; use for earliest “backend is up” detection. */
+  LIVEZ: "/livez",
   STARTUP_STATUS: "/startup-status",
   REMOTE: {
     ENABLE: "/api/remote/enable",

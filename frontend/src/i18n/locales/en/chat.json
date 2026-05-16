@@ -183,5 +183,9 @@
   "loadingModel": "Loading model into memory...",
   "setupProvider": "Set up an AI provider to start chatting",
   "setupProviderDesc": "Add an API key, connect a local endpoint, use Rapid-MLX or Ollama, or sign in with a ChatGPT subscription.",
-  "configureSettings": "Configure"
+  "configureSettings": "Configure",
+
+  "backendStartingService": "Starting services",
+  "backendServiceStarted": "Backend service started",
+  "localCacheSynced": "Local cache synced"
 }

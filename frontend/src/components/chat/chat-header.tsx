@@ -231,7 +231,7 @@ export function ChatHeader({ sessionId }: ChatHeaderProps) {
         {/* Context usage indicator — desktop only */}
         {!remote && sessionId && <ContextIndicator sessionId={sessionId} />}
 
-        {/* Backend startup readiness — desktop only, auto-hides when ready */}
+        {/* Backend startup hints — desktop only, two brief banners then hidden */}
         <BackendReadyIndicator />
       </header>
     </TooltipProvider>

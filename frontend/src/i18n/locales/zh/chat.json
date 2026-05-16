@@ -183,5 +183,9 @@
   "loadingModel": "正在加载模型到内存...",
   "setupProvider": "请先配置 AI 服务商以开始对话",
   "setupProviderDesc": "添加 API 密钥、连接本地端点、使用 Rapid-MLX 或 Ollama，或登录 ChatGPT 订阅。",
-  "configureSettings": "前往配置"
+  "configureSettings": "前往配置",
+
+  "backendStartingService": "正在启动服务",
+  "backendServiceStarted": "后台服务启动成功",
+  "localCacheSynced": "本地缓存已同步"
 }
