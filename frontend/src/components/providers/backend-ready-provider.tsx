@@ -11,8 +11,6 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  API,
-  getBackendUrl,
   IS_DESKTOP,
   queryKeys,
   resetBackendUrl,
@@ -30,7 +28,7 @@ export type BackendReadyPhase =
 /** After both startup banners finish, subsequent mounts stay idle. */
 let _startupUiFinished = false;
 
-/** Ensures only one post-handshake chain runs (handshake may be polled more than once). */
+/** Ensures only one post-handshake chain runs. */
 let _postHandshakeChainStarted = false;
 
 function sleep(ms: number): Promise<void> {
@@ -39,7 +37,7 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-/** Refreshed after /startup-status succeeds (aligns persisted client cache with backend). */
+/** Refreshed after backend confirms readiness (aligns persisted client cache). */
 const STARTUP_SYNC_QUERY_KEYS = [
   queryKeys.connectors,
   queryKeys.mcpConfig,
@@ -57,9 +55,6 @@ export interface UseBackendReadyResult {
 
 const BACKEND_OK_DISPLAY_MS = 1_000;
 const CACHE_SYNCED_DISPLAY_MS = 1_500;
-/** Retry quickly — `/livez` is cheap and needs no Bearer (unlike `/startup-status`). */
-const POLL_INTERVAL_MS = 350;
-const LIVEZ_FETCH_TIMEOUT_MS = 900;
 
 const defaultWebValue: UseBackendReadyResult = { phase: "done" };
 
@@ -74,7 +69,6 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
   });
 
   const cancelled = useRef(false);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
@@ -110,9 +104,8 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       _startupUiFinished = true;
     };
 
-    // In desktop mode the shell may have already confirmed the backend is
-    // ready (health check + token loaded) before the frontend even mounts.
-    // Check via IPC first — if ready, skip the /livez poll entirely.
+    // On mount the Tauri shell may have already finished backend startup
+    // (health check passed + session token loaded).  Check via IPC first.
     const checkIpcReady = async (): Promise<boolean> => {
       try {
         return await desktopAPI.isBackendReady();
@@ -121,72 +114,31 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // Listen for the backend-ready event from the shell.  This fires once
-    // when the backend finishes startup; if it arrives before or during
-    // the /livez poll we transition immediately.
+    // Listen for the backend-ready event.  This fires once when the
+    // backend finishes startup — the Tauri shell is the single source of
+    // truth, no /livez polling needed.
     const unlisten = desktopAPI.onBackendReady((url: string) => {
-      // Cache the URL so subsequent getBackendUrl() calls resolve instantly.
       resetBackendUrl(url);
-      // Token may have rotated — clear stale cache.
       resetBackendToken();
 
       if (cancelled.current || _postHandshakeChainStarted) return;
       _postHandshakeChainStarted = true;
-      if (pollTimer.current) {
-        clearTimeout(pollTimer.current);
-        pollTimer.current = null;
-      }
       void runPostHandshake();
     });
 
-    const poll = async () => {
-      if (cancelled.current) return;
-      try {
-        const base = await getBackendUrl();
-        const url = `${base.replace(/\/$/, "")}${API.LIVEZ}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), LIVEZ_FETCH_TIMEOUT_MS);
-        const res = await fetch(url, {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          if (pollTimer.current) {
-            clearTimeout(pollTimer.current);
-            pollTimer.current = null;
-          }
-          if (_postHandshakeChainStarted) return;
-          _postHandshakeChainStarted = true;
-          if (cancelled.current) return;
-          void runPostHandshake();
-          return;
-        }
-      } catch {
-        // ECONNREFUSED, timeout, or getBackendUrl not ready — keep polling
-      }
-      if (!cancelled.current) {
-        pollTimer.current = setTimeout(poll, POLL_INTERVAL_MS);
-      }
-    };
-
-    // Kick off: check IPC first, fall back to /livez polling.
+    // Kick off: if the shell already marked the backend as ready, proceed
+    // immediately; otherwise the event listener above handles it.
     void (async () => {
       const alreadyReady = await checkIpcReady();
       if (cancelled.current) return;
       if (alreadyReady && !_postHandshakeChainStarted) {
         _postHandshakeChainStarted = true;
         void runPostHandshake();
-        return;
       }
-      // Not ready yet (or IPC check failed) — poll /livez.
-      void poll();
     })();
 
     return () => {
       cancelled.current = true;
-      if (pollTimer.current) clearTimeout(pollTimer.current);
       if (!_startupUiFinished) {
         _postHandshakeChainStarted = false;
       }

@@ -8,9 +8,9 @@ import { IS_DESKTOP } from "@/lib/constants";
 /**
  * Chat header startup hints (desktop only).
  *
- * While the backend HTTP server is not up yet: amber dot + 「正在启动服务」.
- * As soon as GET /livez succeeds (public, no Bearer token), show 「后台服务启动成功」
- * → cache refresh → 「本地缓存已同步」 → hidden.
+ * While the backend hasn't finished starting: amber dot + 「正在启动服务」.
+ * As soon as the Tauri shell confirms readiness (IPC / event), show
+ * 「后台服务启动成功」→ cache refresh → 「本地缓存已同步」 → hidden.
  */
 export function BackendReadyIndicator() {
   const { t } = useTranslation("chat");

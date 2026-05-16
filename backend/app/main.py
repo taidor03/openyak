@@ -397,29 +397,45 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if plugin_manager.status():
         logger.info("Plugin manager: %d plugins loaded", len(plugin_manager.status()))
 
-    # Start connector connections (MCP servers)
-    await connector_registry.startup()
-    app.state.connector_registry = connector_registry
-    set_connector_registry(connector_registry)
-    # Backward compat: expose mcp_manager for any code that still uses it
-    app.state.mcp_manager = connector_registry.mcp_manager
-
-    # Tool registry (tools registered in Step 6)
+    # Tool registry — built-in tools registered here; MCP tools arrive
+    # later via the background startup task.
     tool_registry = ToolRegistry()
     _register_builtin_tools(tool_registry, skill_registry=skill_registry, settings=settings)
-
-    # Register MCP tools from connected connectors + bind for dynamic refresh
-    connector_registry.set_tool_registry(tool_registry)
-    for mcp_tool in connector_registry.tools():
-        tool_registry.register(mcp_tool)
-    if connector_registry.tools():
-        # Register ToolSearch so LLM can discover deferred MCP tool schemas on demand
-        from app.tool.builtin.tool_search import ToolSearchTool
-        tool_registry.register(ToolSearchTool(tool_registry))
-        logger.info("MCP integration enabled (%d tools, ToolSearch active)", len(connector_registry.tools()))
-
     app.state.tool_registry = tool_registry
+
+    # ── MCP connectors: setup immediately, connect in background ──
+    #
+    # The McpManager and ToolRegistry must exist before uvicorn starts
+    # accepting requests (so /livez works), but actually connecting to
+    # remote MCP servers can take 10-30 s and must not block the lifespan.
+    # We build the manager synchronously, launch connections as a
+    # background task, and let sync_tools() register discovered tools
+    # when they arrive.
+    connector_registry.set_tool_registry(tool_registry)
+    app.state.connector_registry = connector_registry
+    set_connector_registry(connector_registry)
+    app.state.mcp_manager = connector_registry.mcp_manager
     set_tool_registry(tool_registry)
+
+    async def _connect_mcp_servers() -> None:
+        """Background task: connect MCP servers and sync discovered tools."""
+        try:
+            await connector_registry.startup()
+            connector_registry.sync_tools()
+            total = len(connector_registry.tools())
+            if total:
+                from app.tool.builtin.tool_search import ToolSearchTool
+                if not tool_registry.get("tool_search"):
+                    tool_registry.register(ToolSearchTool(tool_registry))
+                logger.info(
+                    "MCP integration enabled (%d tools, ToolSearch active)", total
+                )
+        except Exception:
+            logger.warning("Background MCP startup failed", exc_info=True)
+
+    _mcp_bg_task = asyncio.create_task(_connect_mcp_servers())
+    # Keep a reference so we can cancel on shutdown
+    app.state._mcp_startup_task = _mcp_bg_task
 
     # Clean up stale tool output files (from truncation overflow, 7-day retention)
     from app.tool.truncation import cleanup_old_outputs
@@ -528,6 +544,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await tunnel_mgr.stop()
 
     if hasattr(app.state, "connector_registry"):
+        # Cancel the background MCP startup task if it's still running
+        _mcp_task = getattr(app.state, "_mcp_startup_task", None)
+        if _mcp_task and not _mcp_task.done():
+            _mcp_task.cancel()
+            try:
+                await _mcp_task
+            except asyncio.CancelledError:
+                pass
         await app.state.connector_registry.shutdown()
 
     if hasattr(app.state, "task_scheduler"):
