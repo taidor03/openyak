@@ -333,6 +333,8 @@ class ConnectorRegistry:
                 local_cfg["command"] = command
                 if "env" in server_cfg:
                     local_cfg["environment"] = server_cfg["env"]
+            elif "headers" in server_cfg:
+                local_cfg["headers"] = server_cfg["headers"]
 
             connector = ConnectorInfo(
                 id=name,
@@ -389,6 +391,8 @@ class ConnectorRegistry:
                 local_cfg["command"] = command
                 if "env" in server_cfg:
                     local_cfg["environment"] = server_cfg["env"]
+            elif "headers" in server_cfg:
+                local_cfg["headers"] = server_cfg["headers"]
 
             connector = ConnectorInfo(
                 id=name,
@@ -417,12 +421,15 @@ class ConnectorRegistry:
                         "environment": built_env,
                     }
                 else:
-                    self._mcp_manager._config[name] = {
+                    remote_entry: dict[str, Any] = {
                         "type": "remote",
                         "url": url,
                         "enabled": connector.enabled,
                         "no_auth_required": True,
                     }
+                    if "headers" in local_cfg:
+                        remote_entry["headers"] = local_cfg["headers"]
+                    self._mcp_manager._config[name] = remote_entry
 
         # 3. Connect enabled new connectors
         if self._mcp_manager:
@@ -475,12 +482,16 @@ class ConnectorRegistry:
                     **local_cfg,
                 }
             else:
-                mcp_config[cid] = {
+                remote_cfg: dict[str, Any] = {
                     "type": "remote",
                     "url": connector.url,
                     "enabled": connector.enabled,
                     "no_auth_required": connector.no_auth_required,
                 }
+                headers = connector.local_config.get("headers")
+                if headers:
+                    remote_cfg["headers"] = headers
+                mcp_config[cid] = remote_cfg
 
         self._mcp_manager = McpManager(mcp_config, project_dir=self._project_dir)
         await self._mcp_manager.startup()

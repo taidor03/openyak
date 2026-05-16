@@ -10,6 +10,7 @@ export interface McpServerConfig {
   url?: string;
   command?: string[];
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   name?: string;
   description?: string;
   category?: string;
