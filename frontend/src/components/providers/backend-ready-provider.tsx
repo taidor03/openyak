@@ -10,7 +10,15 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { API, getBackendUrl, IS_DESKTOP, queryKeys } from "@/lib/constants";
+import {
+  API,
+  getBackendUrl,
+  IS_DESKTOP,
+  queryKeys,
+  resetBackendUrl,
+  resetBackendToken,
+} from "@/lib/constants";
+import { desktopAPI } from "@/lib/tauri-api";
 
 export type BackendReadyPhase =
   | "connecting"
@@ -47,8 +55,8 @@ export interface UseBackendReadyResult {
   phase: BackendReadyPhase;
 }
 
-const BACKEND_OK_DISPLAY_MS = 2_000;
-const CACHE_SYNCED_DISPLAY_MS = 2_500;
+const BACKEND_OK_DISPLAY_MS = 1_000;
+const CACHE_SYNCED_DISPLAY_MS = 1_500;
 /** Retry quickly — `/livez` is cheap and needs no Bearer (unlike `/startup-status`). */
 const POLL_INTERVAL_MS = 350;
 const LIVEZ_FETCH_TIMEOUT_MS = 900;
@@ -102,6 +110,35 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       _startupUiFinished = true;
     };
 
+    // In desktop mode the shell may have already confirmed the backend is
+    // ready (health check + token loaded) before the frontend even mounts.
+    // Check via IPC first — if ready, skip the /livez poll entirely.
+    const checkIpcReady = async (): Promise<boolean> => {
+      try {
+        return await desktopAPI.isBackendReady();
+      } catch {
+        return false;
+      }
+    };
+
+    // Listen for the backend-ready event from the shell.  This fires once
+    // when the backend finishes startup; if it arrives before or during
+    // the /livez poll we transition immediately.
+    const unlisten = desktopAPI.onBackendReady((url: string) => {
+      // Cache the URL so subsequent getBackendUrl() calls resolve instantly.
+      resetBackendUrl(url);
+      // Token may have rotated — clear stale cache.
+      resetBackendToken();
+
+      if (cancelled.current || _postHandshakeChainStarted) return;
+      _postHandshakeChainStarted = true;
+      if (pollTimer.current) {
+        clearTimeout(pollTimer.current);
+        pollTimer.current = null;
+      }
+      void runPostHandshake();
+    });
+
     const poll = async () => {
       if (cancelled.current) return;
       try {
@@ -134,7 +171,18 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    void poll();
+    // Kick off: check IPC first, fall back to /livez polling.
+    void (async () => {
+      const alreadyReady = await checkIpcReady();
+      if (cancelled.current) return;
+      if (alreadyReady && !_postHandshakeChainStarted) {
+        _postHandshakeChainStarted = true;
+        void runPostHandshake();
+        return;
+      }
+      // Not ready yet (or IPC check failed) — poll /livez.
+      void poll();
+    })();
 
     return () => {
       cancelled.current = true;
@@ -142,6 +190,7 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       if (!_startupUiFinished) {
         _postHandshakeChainStarted = false;
       }
+      unlisten();
     };
   }, [queryClient]);
 

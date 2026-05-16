@@ -77,6 +77,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_backend_url,
             commands::get_backend_token,
+            commands::is_backend_ready,
             commands::get_pending_navigation,
             commands::window_minimize,
             commands::window_maximize,
@@ -226,30 +227,35 @@ pub fn run() {
                     if let Err(e) = state.set_dev_data_dir(dev_data_dir).await {
                         error!("Dev mode: failed to load backend session token: {e}");
                     }
+                    // Dev mode: backend is already running, mark as ready immediately.
+                    state.set_ready().await;
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.center();
                         let _ = window.show();
                     }
                 });
             } else {
-                // Production: spawn and manage backend process
+                // Production: show window immediately so the user sees a
+                // loading state while the backend starts up, then spawn the
+                // backend process. The frontend's BackendReadyProvider will
+                // show "正在启动服务" until the backend-ready event arrives.
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.center();
+                    let _ = window.show();
+                }
+
+                // Spawn backend in background; emit event when ready.
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<BackendState>();
                     match state.start(&app_handle).await {
                         Ok(url) => {
                             info!("Backend started at {url}");
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                let _ = window.center();
-                                let _ = window.show();
-                            }
+                            // Notify frontend that the backend is ready.
+                            let _ = app_handle.emit("backend-ready", &url);
                         }
                         Err(err) => {
                             error!("Failed to start backend: {err}");
                             let _ = app_handle.emit("backend-crash", &err);
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                let _ = window.center();
-                                let _ = window.show();
-                            }
                         }
                     }
                 });

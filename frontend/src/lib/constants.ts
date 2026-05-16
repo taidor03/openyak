@@ -170,6 +170,14 @@ if (IS_DESKTOP && typeof window !== "undefined") {
     resetBackendUrl(newUrl);
     resetBackendToken();
   });
+
+  desktopAPI.onBackendReady((newUrl) => {
+    // Backend ready event from the shell — the health check passed and
+    // the session token is loaded. Cache the URL so the next
+    // getBackendUrl() call resolves immediately.
+    resetBackendUrl(newUrl);
+  });
+
   desktopAPI.onBackendCrashLog((log) => {
     console.error(
       "%c[Backend Crash Log]%c\n%s",

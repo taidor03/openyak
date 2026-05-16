@@ -6,9 +6,16 @@ use tauri_plugin_opener::OpenerExt;
 use crate::{backend::BackendState, tray, PendingNavigationState};
 
 /// Get the backend URL (http://127.0.0.1:{port}).
+/// Returns an error if the backend has not yet started (port is 0).
 #[tauri::command]
 pub async fn get_backend_url(state: tauri::State<'_, BackendState>) -> Result<String, String> {
-    Ok(state.url().await)
+    let url = state.url().await;
+    // Port 0 means the backend hasn't started yet — the frontend should
+    // retry rather than cache a broken URL.
+    if url.ends_with(":0") {
+        return Err("Backend not yet ready".to_string());
+    }
+    Ok(url)
 }
 
 /// Get the backend's per-run session bearer token. The token is read
@@ -20,6 +27,14 @@ pub async fn get_backend_url(state: tauri::State<'_, BackendState>) -> Result<St
 #[tauri::command]
 pub async fn get_backend_token(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     state.token().await
+}
+
+/// Check whether the backend has completed startup (health check passed
+/// and session token loaded). The frontend uses this to skip redundant
+/// /livez polling when the shell already confirmed readiness.
+#[tauri::command]
+pub async fn is_backend_ready(state: tauri::State<'_, BackendState>) -> Result<bool, String> {
+    Ok(state.is_ready().await)
 }
 
 #[tauri::command]

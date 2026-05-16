@@ -42,23 +42,41 @@ function LanguageSync({ onReady }: { onReady: () => void }) {
   return null;
 }
 
+/** Retry interval for polling the backend URL during startup. */
+const BACKEND_URL_RETRY_MS = 500;
+
 export function AppProviders({ children }: { children: ReactNode }) {
   const [backendReady, setBackendReady] = useState(!IS_DESKTOP);
   const [languageReady, setLanguageReady] = useState(false);
   const handleLanguageReady = useCallback(() => setLanguageReady(true), []);
 
-  // Eagerly resolve the backend URL (important for desktop/Electron mode)
+  // In desktop mode the backend may not be ready when the window first
+  // appears (the shell shows the window immediately and starts the
+  // backend in the background).  Poll getBackendUrl() until it resolves
+  // successfully — the Rust side returns an error while the port is 0.
   useEffect(() => {
-    let mounted = true;
     if (!IS_DESKTOP) return;
-    getBackendUrl()
-      .catch(() => {})
-      .finally(() => {
+    let mounted = true;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tryResolve = async () => {
+      try {
+        await getBackendUrl();
+        // Backend URL resolved — backend is up.
         if (mounted) setBackendReady(true);
-      });
+      } catch {
+        // Backend not ready yet — retry after a short delay.
+        if (mounted) {
+          timeoutId = setTimeout(tryResolve, BACKEND_URL_RETRY_MS);
+        }
+      }
+    };
+
+    void tryResolve();
 
     return () => {
       mounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 

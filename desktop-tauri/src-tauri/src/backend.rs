@@ -74,6 +74,10 @@ struct BackendInner {
     /// spawn (prod) or via set_dev_data_dir (dev) so token refresh after
     /// an auto-restart uses the same path.
     data_dir: Option<PathBuf>,
+    /// Whether the backend has passed its health check and the session
+    /// token has been loaded. The frontend can query this via IPC to
+    /// skip redundant /livez polling on initial startup.
+    backend_ready: bool,
 }
 
 impl BackendState {
@@ -89,6 +93,7 @@ impl BackendState {
                 last_crash_time: 0,
                 session_token: None,
                 data_dir: None,
+                backend_ready: false,
             })),
         }
     }
@@ -132,9 +137,27 @@ impl BackendState {
             .ok_or_else(|| "Backend session token not yet available".to_string())
     }
 
+    /// Returns whether the backend has completed startup (health check
+    /// passed + session token loaded). The frontend uses this to skip
+    /// redundant /livez polling when the shell already confirmed readiness.
+    pub async fn is_ready(&self) -> bool {
+        let inner = self.inner.lock().await;
+        inner.backend_ready
+    }
+
+    /// Mark the backend as ready (used in dev mode where the backend
+    /// is already running externally).
+    pub async fn set_ready(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.backend_ready = true;
+    }
+
     /// Start the Python backend process.
     pub async fn start(&self, app: &AppHandle) -> Result<String, String> {
         let mut inner = self.inner.lock().await;
+
+        // Mark backend as not ready during startup.
+        inner.backend_ready = false;
 
         // Port selection: reuse previous port if available, otherwise pick a new one.
         // This avoids stale-URL windows on restart — the frontend already has the right URL cached.
@@ -355,6 +378,7 @@ impl BackendState {
             inner.crash_count = 0;
             inner.session_token = Some(token);
             inner.data_dir = Some(token_data_dir);
+            inner.backend_ready = true;
         }
 
         // Start watchdog
@@ -539,6 +563,7 @@ impl BackendState {
         let mut inner = self.inner.lock().await;
         inner.intentional_stop = true;
         inner.restarting = false;
+        inner.backend_ready = false;
 
         if inner.process.is_none() {
             return Ok(());

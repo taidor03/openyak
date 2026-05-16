@@ -15,6 +15,7 @@ export interface TrayRecent {
 export interface DesktopAPI {
   getBackendUrl: () => Promise<string>;
   getBackendToken: () => Promise<string>;
+  isBackendReady: () => Promise<boolean>;
   getPendingNavigation: () => Promise<string | null>;
   getPlatform: () => Promise<string>;
   openExternal: (url: string) => Promise<void>;
@@ -27,6 +28,7 @@ export interface DesktopAPI {
   onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
   onBackendRestarting: (callback: () => void) => () => void;
   onBackendRestart: (callback: (newUrl: string) => void) => () => void;
+  onBackendReady: (callback: (url: string) => void) => () => void;
   onBackendCrashLog: (callback: (log: string) => void) => () => void;
   onNavigate: (callback: (path: string) => void) => () => void;
   onToggleSidebar: (callback: () => void) => () => void;
@@ -59,6 +61,7 @@ function listenSync<T>(
 export const desktopAPI: DesktopAPI = {
   getBackendUrl: () => invoke<string>("get_backend_url"),
   getBackendToken: () => invoke<string>("get_backend_token"),
+  isBackendReady: () => invoke<boolean>("is_backend_ready"),
   getPendingNavigation: () => invoke<string | null>("get_pending_navigation"),
   getPlatform: () => invoke<string>("get_platform"),
   openExternal: (url) => invoke("open_external", { url }),
@@ -74,6 +77,8 @@ export const desktopAPI: DesktopAPI = {
     listenSync<void>("backend-restarting", callback),
   onBackendRestart: (callback) =>
     listenSync<string>("backend-restart", callback),
+  onBackendReady: (callback) =>
+    listenSync<string>("backend-ready", callback),
   onBackendCrashLog: (callback) =>
     listenSync<string>("backend-crash-log", callback),
   onNavigate: (callback) => listenSync<string>("navigate", callback),
