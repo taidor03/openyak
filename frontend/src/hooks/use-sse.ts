@@ -739,6 +739,25 @@ export function useSSE(streamId: string | null) {
           clearInterval(idleCheckTimer);
           return;
         }
+        // Fast path: if the sidebar polling already knows this session has no
+        // active generation (activeSessionIds doesn't include it), the backend
+        // is done. Force finishGeneration immediately — don't wait for the
+        // timestamp-based idle check, which can be defeated by stale heartbeats.
+        const state = store.getState();
+        if (state.sessionId && !state.activeSessionIds.has(state.sessionId)) {
+          console.warn("SSE idle recovery: session no longer active, forcing finishGeneration");
+          try {
+            if (state.sessionId) {
+              await finishFromDatabase(state.sessionId);
+            }
+          } finally {
+            store.getState().finishGeneration();
+            connectionStore.getState().setStatus("idle");
+          }
+          clearInterval(idleCheckTimer);
+          client.close();
+          return;
+        }
         if (lastEventTimestamp > 0 && Date.now() - lastEventTimestamp > IDLE_RECOVERY_MS) {
           console.warn("SSE idle recovery: no events for 15s, attempting DB recovery");
           const sid = store.getState().sessionId;

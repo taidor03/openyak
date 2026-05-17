@@ -1036,12 +1036,44 @@ class SessionProcessor:
             if not tool_calls_in_step:
                 has_tool_calls = False
 
-        if has_tool_calls and streaming_executor.has_submissions:
-            # If loop detection blocked some tools but other tools were submitted,
-            # let them finish and return "continue" so the LLM can see the results
-            # and decide what to do next. Only return "stop" if ALL tool calls were
-            # blocked (nothing to show the LLM).
-            if _loop_block_count > 0 and not streaming_executor.has_submissions:
+        if has_tool_calls:
+            # If ALL tool calls were blocked by loop detection (no submissions),
+            # stop the loop — there's nothing useful for the LLM to continue with.
+            if not streaming_executor.has_submissions:
+                # Override finish_reason to "stop" so the frontend STEP_FINISH
+                # handler recognizes this as terminal and triggers its safety net.
+                self.finish_reason = "stop"
+                logger.info(
+                    "All tool calls blocked by loop detection for session %s, "
+                    "forcing stop (finish_reason='stop')",
+                    job.session_id,
+                )
+                # Emit STEP_FINISH with terminal reason so the frontend
+                # can detect completion even if DONE is delayed.
+                job.publish(
+                    SSEEvent(
+                        STEP_FINISH,
+                        {
+                            "tokens": self.usage_data,
+                            "cost": self.step_cost,
+                            "total_cost": sp.total_cost + self.step_cost,
+                            "reason": "stop",
+                        },
+                    )
+                )
+                async with session_factory() as db:
+                    async with db.begin():
+                        await create_part(
+                            db,
+                            message_id=self._assistant_msg_id,
+                            session_id=job.session_id,
+                            data={
+                                "type": "step-finish",
+                                "reason": "stop",
+                                "tokens": self.usage_data,
+                                "cost": self.step_cost,
+                            },
+                        )
                 return "stop"
 
             # === Collect results — concurrent tools already running, exclusive run now ===

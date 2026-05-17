@@ -443,7 +443,19 @@ async def stream_events(
                     yield event.encode()
                     if event.event in ("done", "agent-error"):
                         done_sent = True
+                        # After sending a terminal event, stop the loop.
+                        # The None sentinel should follow, but if it was lost
+                        # (e.g., queue full during job.complete()), continuing
+                        # would send heartbeats indefinitely — keeping the
+                        # frontend's SSE connection alive and preventing idle
+                        # recovery from triggering, leaving the UI stuck in
+                        # "thinking" forever.
+                        break
                 except asyncio.TimeoutError:
+                    if done_sent:
+                        # Safety: if we sent DONE but never received None,
+                        # break out instead of sending more heartbeats.
+                        break
                     # Send heartbeat as a named SSE event so the frontend
                     # EventSource triggers listeners and resets its timer.
                     yield "event: heartbeat\ndata: {}\n\n"
