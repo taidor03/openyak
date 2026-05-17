@@ -46,10 +46,6 @@ export function ChatView({ sessionId }: ChatViewProps) {
     pendingPlanReview,
   } = useChat(sessionId);
 
-  // Ref to access latest stopGeneration in cleanup without re-triggering the effect
-  const stopRef = useRef(stopGeneration);
-  stopRef.current = stopGeneration;
-
   const { messages, isLoading, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage } = useMessages(sessionId);
 
   const { data: session } = useQuery({
@@ -79,7 +75,13 @@ export function ChatView({ sessionId }: ChatViewProps) {
     }).catch((e) => console.warn("[chat-view] Failed to auto-set title:", e));
   }, [session, messages, sessionId, qc]);
 
-  // Close right-side panels when switching sessions; abort generation if active.
+  // Close right-side panels when switching sessions.
+  // IMPORTANT: When navigating away from a session with an active generation,
+  // we do NOT abort the backend task. The generation continues running
+  // server-side and the user can switch back to see the results.
+  // We only clear the *frontend streaming state* so the UI doesn't stay stuck
+  // in "generating" for the new session.
+  //
   // We use a ref to track whether we're truly leaving this session vs. React
   // Strict Mode's dev-only double-invoke (mount → unmount → remount).
   const sessionMountedRef = useRef(false);
@@ -131,18 +133,22 @@ export function ChatView({ sessionId }: ChatViewProps) {
 
     sessionMountedRef.current = true;
     return () => {
-      // Defer the abort check to the next microtask. If this is a React Strict
-      // Mode double-invoke, the component will remount synchronously and set
-      // sessionMountedRef back to true before the microtask runs. If it's a
-      // real unmount/session change, the ref stays false.
+      // Defer the cleanup check to the next microtask. If this is a React
+      // Strict Mode double-invoke, the component will remount synchronously
+      // and set sessionMountedRef back to true before the microtask runs.
+      // If it's a real unmount/session change, the ref stays false.
       sessionMountedRef.current = false;
-      const capturedStopRef = stopRef.current;
       const capturedSessionId = sessionId;
       queueMicrotask(() => {
-        if (sessionMountedRef.current) return; // StrictMode remount — skip abort
+        if (sessionMountedRef.current) return; // StrictMode remount — skip
         const state = useChatStore.getState();
         if ((state.isGenerating || state.isCompacting) && state.sessionId === capturedSessionId) {
-          capturedStopRef();
+          // Only clear the *frontend* streaming state — do NOT send an abort
+          // request to the backend. The generation should continue running on
+          // the server so the user can switch back and see the results.
+          // The SSE cleanup hook (use-sse.ts) already closes the client and
+          // schedules a delayed finishGeneration recovery.
+          state.finishGeneration();
         }
       });
     };

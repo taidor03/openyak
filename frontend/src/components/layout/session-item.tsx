@@ -24,6 +24,7 @@ import type { SessionResponse } from "@/types/session";
 interface SessionItemProps {
   session: SessionResponse;
   isActive?: boolean;
+  isGenerating?: boolean;
   onDelete: (id: string, title: string) => void;
   onRename: (id: string, newTitle: string) => void;
   onExportPdf?: (id: string, title: string) => void;
@@ -41,6 +42,7 @@ interface SessionItemProps {
 export const SessionItem = memo(function SessionItem({
   session,
   isActive = false,
+  isGenerating = false,
   onDelete,
   onRename,
   onExportPdf,
@@ -281,6 +283,16 @@ export const SessionItem = memo(function SessionItem({
             isEditing && "ring-1 ring-[var(--brand-primary)]",
           )}
         >
+          {/* Activity pulse indicator — shown when this session has a running generation */}
+          {isGenerating && !isEditing && (
+            <span
+              className="absolute left-2 top-1/2 z-0 flex h-2 w-2 -translate-y-1/2"
+              aria-hidden
+            >
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--brand-primary)] opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--brand-primary)]" />
+            </span>
+          )}
           <button
             type="button"
             onClick={(e) => {

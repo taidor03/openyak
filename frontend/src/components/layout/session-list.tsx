@@ -24,6 +24,9 @@ import { getChatRoute } from "@/lib/routes";
 import { cn, groupSessionsByDate, groupSessionsByWorkspace } from "@/lib/utils";
 import type { SessionResponse } from "@/types/session";
 
+/** Poll interval for /chat/active to update sidebar generation indicators. */
+const ACTIVE_POLL_INTERVAL = 5_000; // 5 seconds
+
 type FlatItem =
   | { type: "header"; label: string; first?: boolean }
   | { type: "project"; directory: string; label: string; count: number; collapsed: boolean }
@@ -34,6 +37,33 @@ export function SessionList() {
   const router = useRouter();
   const activeSessionId = useActiveSessionId();
   const showArchived = useSidebarStore((s) => s.showArchived);
+
+  // ── Poll /chat/active to track which sessions have running generations ──
+  // This powers the pulsing indicator in the sidebar.
+  const activeSessionIds = useChatStore((s) => s.activeSessionIds);
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const jobs = await api.get<Array<{ stream_id: string; session_id: string }>>(API.CHAT.ACTIVE);
+        if (!active) return;
+        const ids = new Set(jobs.map((j) => j.session_id));
+        useChatStore.getState().setActiveSessionIds(ids);
+      } catch {
+        // Silently ignore — backend may be temporarily unreachable
+      }
+      if (active) {
+        timer = setTimeout(poll, ACTIVE_POLL_INTERVAL);
+      }
+    };
+    poll();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   const normalQuery = useSessions();
   const archivedQuery = useArchivedSessions(showArchived);
@@ -600,6 +630,7 @@ export function SessionList() {
                   <SessionItem
                     session={item.session}
                     isActive={activeSessionId === item.session.id}
+                    isGenerating={activeSessionIds.has(item.session.id)}
                     onDelete={handleDeleteRequest}
                     onRename={handleRename}
                     onExportPdf={exportPdf}

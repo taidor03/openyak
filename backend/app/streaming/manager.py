@@ -82,10 +82,26 @@ class GenerationJob:
                 if event.event in _TERMINAL_EVENTS:
                     # Terminal events MUST be delivered — losing DONE/AGENT_ERROR
                     # causes the frontend to stay stuck in "generating" forever.
+                    # Aggressively drain and retry to guarantee delivery.
+                    drained = 0
+                    while not q.empty():
+                        try:
+                            q.get_nowait()
+                            drained += 1
+                        except asyncio.QueueEmpty:
+                            break
+                    if drained > 0:
+                        logger.warning(
+                            "Terminal event delivery: drained %d events from queue for event %s",
+                            drained, event.event,
+                        )
                     try:
                         q.put_nowait(event)
-                    except Exception:
-                        pass
+                    except asyncio.QueueFull:
+                        logger.error(
+                            "CRITICAL: Failed to deliver terminal event %s even after queue drain",
+                            event.event,
+                        )
                 else:
                     # Non-terminal: notify client that events were lost
                     try:
@@ -144,7 +160,9 @@ class GenerationJob:
         return q
 
     def complete(self) -> None:
-        """Mark generation as complete. Signal all subscribers."""
+        """Mark generation as complete. Signal all subscribers. Idempotent."""
+        if self._completed:
+            return
         self._completed = True
         for q in self.subscribers:
             try:

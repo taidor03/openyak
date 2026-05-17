@@ -802,6 +802,45 @@ class SessionPrompt:
         """Cleanup, persist accumulated cost/tokens, publish DONE, auto-title."""
         from app.session.processor import _delete_empty_assistant_messages
 
+        # ── Publish DONE IMMEDIATELY — unlock the frontend UI ──
+        # This is the most critical operation: it releases the frontend from the
+        # "thinking" / "generating" state. Any delay here (e.g., due to DB
+        # operations below) causes the UI timer to keep ticking and the input
+        # to stay disabled. All subsequent operations are non-critical and can
+        # safely run after the frontend has already transitioned to "idle".
+        self.job.publish(
+            SSEEvent(
+                DONE,
+                {
+                    "session_id": self.job.session_id,
+                    "finish_reason": (
+                        self.finish_reason if not self.job.abort_event.is_set() else "aborted"
+                    ),
+                    "total_cost": self.total_cost,
+                },
+            )
+        )
+
+        # ── Non-critical post-DONE operations ──
+        # These run after the frontend has already received DONE. Failures
+        # here do not affect the user-visible generation state.
+
+        # Set title on first turn — use first user message directly.
+        # Published as TITLE_UPDATE after DONE; the frontend handles late
+        # title updates gracefully (sidebar will refresh via query invalidation).
+        if self.is_first_turn:
+            title = self.first_user_text.strip()[:60]
+            if title:
+                try:
+                    async with self.session_factory() as db:
+                        async with db.begin():
+                            await update_session_title(db, self.job.session_id, title)
+                    self.job.publish(SSEEvent(TITLE_UPDATE, {"title": title}))
+                except Exception:
+                    logger.warning(
+                        "Failed to persist title for %s", self.job.session_id
+                    )
+
         await _delete_empty_assistant_messages(self.session_factory, self.job.session_id)
 
         # Persist accumulated cost and tokens on the last assistant message
@@ -824,21 +863,6 @@ class SessionPrompt:
                 logger.warning(
                     "Failed to persist cost/tokens on message %s", self.assistant_msg_id
                 )
-
-        # Set title on first turn — use first user message directly.
-        # Must happen BEFORE DONE so the SSE client receives TITLE_UPDATE.
-        if self.is_first_turn:
-            title = self.first_user_text.strip()[:60]
-            if title:
-                try:
-                    async with self.session_factory() as db:
-                        async with db.begin():
-                            await update_session_title(db, self.job.session_id, title)
-                    self.job.publish(SSEEvent(TITLE_UPDATE, {"title": title}))
-                except Exception:
-                    logger.warning(
-                        "Failed to persist title for %s", self.job.session_id
-                    )
 
         # Queue conversation for workspace memory refresh
         if not self.job.abort_event.is_set() and self.workspace and self.workspace != ".":
@@ -864,20 +888,6 @@ class SessionPrompt:
                     )
             except Exception:
                 logger.warning("Workspace memory queue submission failed", exc_info=True)
-
-        # Publish DONE to unlock the frontend UI.
-        self.job.publish(
-            SSEEvent(
-                DONE,
-                {
-                    "session_id": self.job.session_id,
-                    "finish_reason": (
-                        self.finish_reason if not self.job.abort_event.is_set() else "aborted"
-                    ),
-                    "total_cost": self.total_cost,
-                },
-            )
-        )
 
     # ------------------------------------------------------------------
     # Shared helpers (called by SessionProcessor on agent switch)

@@ -927,45 +927,48 @@ class SessionProcessor:
             had_visible_text = bool(accumulated_text.strip())
             self.has_text = had_visible_text
             self.finish_reason = "error"
-            if accumulated_text or accumulated_reasoning:
-                async with session_factory() as db:
-                    async with db.begin():
-                        if accumulated_text:
-                            await create_part(
-                                db,
-                                message_id=self._assistant_msg_id,
-                                session_id=job.session_id,
-                                data={"type": "text", "text": accumulated_text},
-                            )
-                        if accumulated_reasoning:
-                            await create_part(
-                                db,
-                                message_id=self._assistant_msg_id,
-                                session_id=job.session_id,
-                                data={"type": "reasoning", "text": accumulated_reasoning},
-                            )
+            # Always persist step-finish on error — even when there's no
+            # accumulated text/reasoning. Without a persisted terminal
+            # step-finish, the frontend's finishFromDatabase() cannot detect
+            # that this generation ended, leaving the UI stuck in "thinking".
+            async with session_factory() as db:
+                async with db.begin():
+                    if accumulated_text:
                         await create_part(
                             db,
                             message_id=self._assistant_msg_id,
                             session_id=job.session_id,
-                            data={
-                                "type": "step-finish",
-                                "reason": self.finish_reason,
-                                "tokens": self.usage_data,
-                                "cost": self.step_cost,
-                            },
+                            data={"type": "text", "text": accumulated_text},
                         )
-                job.publish(
-                    SSEEvent(
-                        STEP_FINISH,
-                        {
+                    if accumulated_reasoning:
+                        await create_part(
+                            db,
+                            message_id=self._assistant_msg_id,
+                            session_id=job.session_id,
+                            data={"type": "reasoning", "text": accumulated_reasoning},
+                        )
+                    await create_part(
+                        db,
+                        message_id=self._assistant_msg_id,
+                        session_id=job.session_id,
+                        data={
+                            "type": "step-finish",
+                            "reason": self.finish_reason,
                             "tokens": self.usage_data,
                             "cost": self.step_cost,
-                            "total_cost": sp.total_cost + self.step_cost,
-                            "reason": self.finish_reason,
                         },
                     )
+            job.publish(
+                SSEEvent(
+                    STEP_FINISH,
+                    {
+                        "tokens": self.usage_data,
+                        "cost": self.step_cost,
+                        "total_cost": sp.total_cost + self.step_cost,
+                        "reason": self.finish_reason,
+                    },
                 )
+            )
             await _delete_empty_assistant_messages(session_factory, job.session_id)
             job.publish(SSEEvent(AGENT_ERROR, {"error_message": f"LLM stream error: {stream_error}"}))
             return "stop"

@@ -68,6 +68,15 @@ interface ChatStore {
   isGenerating: boolean;
   isCompacting: boolean;
 
+  // ─── Global active sessions (visible across sidebar) ───
+  /** Set of session IDs that currently have an active backend generation.
+   *  Populated by polling GET /chat/active.  Used by the sidebar to show
+   *  a pulsing indicator on sessions that are generating even when the
+   *  user has navigated away to a different chat. */
+  activeSessionIds: Set<string>;
+  /** Update the global active-session set (called from the polling hook). */
+  setActiveSessionIds: (ids: Set<string>) => void;
+
   // ─── Optimistic user message ───
   /** Text shown as a pending user bubble before the API confirms creation. */
   pendingUserText: string | null;
@@ -166,6 +175,7 @@ export const useChatStore = create<ChatStore>((set) => ({
   sessionId: null,
   isGenerating: false,
   isCompacting: false,
+  activeSessionIds: new Set<string>(),
   pendingUserText: null,
   pendingAttachments: null,
   streamingParts: [],
@@ -178,6 +188,20 @@ export const useChatStore = create<ChatStore>((set) => ({
   sessionUsage: EMPTY_SESSION_USAGE,
 
   // Actions
+  setActiveSessionIds: (ids) =>
+    set((s) => {
+      // Skip update if the set contents haven't changed to avoid
+      // unnecessary re-renders in the sidebar.
+      if (s.activeSessionIds.size === ids.size) {
+        let same = true;
+        for (const id of ids) {
+          if (!s.activeSessionIds.has(id)) { same = false; break; }
+        }
+        if (same) return s; // no change — bail out
+      }
+      return { activeSessionIds: ids };
+    }),
+
   beginSending: (text, attachments) =>
     set({
       isGenerating: true,
@@ -564,6 +588,7 @@ export const useChatStore = create<ChatStore>((set) => ({
       pendingQuestion: null,
       pendingPlanReview: null,
       sessionUsage: EMPTY_SESSION_USAGE,
+      activeSessionIds: new Set(),
     });
   },
 }));

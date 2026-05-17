@@ -10,3 +10,4 @@ Welcome to the Wiki Knowledge Center. Pages are organized by category:
 - **queries/** — Saved queries and research notes
 
 <!-- Wiki pages will be indexed here automatically -->
+- [[OpenYak MCP 自定义配置]] (entities)

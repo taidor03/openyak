@@ -237,16 +237,25 @@ def _content_to_text(content: Any) -> str:
 
 
 def _on_task_done(task: asyncio.Task[None], *, job: GenerationJob) -> None:
-    """Log unhandled exceptions from generation tasks."""
+    """Ensure frontend never gets stuck — guarantees job.complete() on failure."""
     if task.cancelled():
+        if not job.completed:
+            job.publish(SSEEvent(DONE, {
+                "session_id": job.session_id,
+                "finish_reason": "aborted",
+            }))
+            job.complete()
         return
     exc = task.exception()
     if exc is not None:
         logger.error("OpenAI-compat generation failed %s: %s", task.get_name(), exc, exc_info=exc)
-        try:
-            job.publish(SSEEvent(AGENT_ERROR, {"error_message": "Internal error."}))
-        except Exception:
-            pass
+        if not job.completed:
+            try:
+                job.publish(SSEEvent(AGENT_ERROR, {"error_message": "Internal error."}))
+            except Exception:
+                pass
+            finally:
+                job.complete()
 
 
 async def _run_with_semaphore(sm: StreamManager, job: GenerationJob, coro) -> None:

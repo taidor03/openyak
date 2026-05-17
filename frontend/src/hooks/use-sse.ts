@@ -168,24 +168,35 @@ export function useSSE(streamId: string | null) {
         await refreshLatestMessages(sessionId, queryClient);
         await waitForNextPaint();
 
+        // Check whether the DB now contains a terminal step-finish. If it does,
+        // the generation is truly complete even if /chat/active still reports
+        // the job as active (e.g., the backend is running _post_loop cleanup
+        // after already publishing DONE).
+        const hasDbTerminal = canFinalizeFromCache(sessionId);
+
         // Do not finalize from DB while the backend still reports an active
-        // generation for this session. Without this guard, an intermediate
-        // assistant message that happens to end with a terminal-looking
-        // step-finish can prematurely tear down the streaming UI while the
-        // same stream continues with more tool calls / follow-up steps.
-        try {
-          const activeJobs = await api.get<Array<{ stream_id: string; session_id: string }>>(
-            API.CHAT.ACTIVE,
-          );
-          const currentStreamId = store.getState().streamId;
-          const stillActive = activeJobs.some(
-            (job) =>
-              job.session_id === sessionId &&
-              (!currentStreamId || job.stream_id === currentStreamId),
-          );
-          if (stillActive) return false;
-        } catch {
-          // If the active-job check fails, fall back to the DB heuristic below.
+        // generation for this session — UNLESS we already have a terminal
+        // step-finish in the DB. Without this guard, an intermediate assistant
+        // message that ends with a terminal-looking step-finish can prematurely
+        // tear down the streaming UI while the same stream continues with more
+        // tool calls / follow-up steps. But when the DB confirms completion,
+        // we can safely finalize even if /chat/active is lagging (the backend
+        // may be in _post_loop doing non-critical work after publishing DONE).
+        if (!hasDbTerminal) {
+          try {
+            const activeJobs = await api.get<Array<{ stream_id: string; session_id: string }>>(
+              API.CHAT.ACTIVE,
+            );
+            const currentStreamId = store.getState().streamId;
+            const stillActive = activeJobs.some(
+              (job) =>
+                job.session_id === sessionId &&
+                (!currentStreamId || job.stream_id === currentStreamId),
+            );
+            if (stillActive) return false;
+          } catch {
+            // If the active-job check fails, fall back to the DB heuristic below.
+          }
         }
 
         if (!canFinalizeFromCache(sessionId)) {
@@ -797,9 +808,21 @@ export function useSSE(streamId: string | null) {
         client.close();
         clientRef.current = null;
         if (store.getState().isGenerating) {
-          // Reset module-level state so a future stream doesn't inherit stale values
+          // Reset module-level state so a future stream doesn't inherit stale values.
+          // Also schedule a delayed recovery check: if a new SSE hook doesn't
+          // take over within a few seconds (e.g., user navigated away from the
+          // chat entirely), force-finish the generation state so the UI doesn't
+          // stay stuck in "thinking" forever.
           persistedLastEventId = 0;
           currentStreamId = null;
+          const capturedSessionId = store.getState().sessionId;
+          setTimeout(() => {
+            if (store.getState().isGenerating && store.getState().sessionId === capturedSessionId) {
+              console.warn("SSE cleanup recovery: forcing finishGeneration after navigation away");
+              store.getState().finishGeneration();
+              connectionStore.getState().setStatus("idle");
+            }
+          }, 3_000);
         } else {
           connectionStore.getState().setStatus("idle");
         }

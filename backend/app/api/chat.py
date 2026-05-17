@@ -84,21 +84,42 @@ def _ensure_image_attachments_supported(
 
 
 def _on_task_done(task: asyncio.Task[None], *, job: GenerationJob) -> None:
-    """Callback for generation tasks — logs and publishes unhandled exceptions.
+    """Callback for generation tasks — ensures frontend never gets stuck.
 
-    Without this, an unhandled exception in run_generation would be silently
-    swallowed and the frontend would never receive a DONE or AGENT_ERROR event,
-    leaving the UI stuck in the "generating" state forever.
+    Guarantees that either DONE or AGENT_ERROR is published and job.complete()
+    is called, even when the task is cancelled or run_generation's finally block
+    doesn't execute (e.g., cancellation before the coroutine starts).
+
+    Without this, an unhandled exception or cancellation would leave the
+    frontend stuck in the "generating" state forever because /chat/active
+    would still report the job as active.
     """
     if task.cancelled():
+        # Task was cancelled — run_generation's finally block may not have
+        # executed if the cancellation happened before the coroutine started
+        # (e.g., semaphore timeout, abort before acquire). Ensure the job is
+        # marked complete so /chat/active stops reporting it.
+        if not job.completed:
+            logger.info("Generation task %s was cancelled, ensuring job completion", task.get_name())
+            job.publish(SSEEvent(DONE, {
+                "session_id": job.session_id,
+                "finish_reason": "aborted",
+            }))
+            job.complete()
         return
+
     exc = task.exception()
     if exc is not None:
         logger.error("Unhandled exception in generation task %s: %s", task.get_name(), exc, exc_info=exc)
-        try:
-            job.publish(SSEEvent(AGENT_ERROR, {"error_message": "An internal error occurred. Please try again."}))
-        except Exception:
-            logger.exception("Failed to publish AGENT_ERROR for task %s", task.get_name())
+        if not job.completed:
+            try:
+                job.publish(SSEEvent(AGENT_ERROR, {"error_message": "An internal error occurred. Please try again."}))
+            except Exception:
+                logger.exception("Failed to publish AGENT_ERROR for task %s", task.get_name())
+            finally:
+                # Ensure job.complete() is always called even if publish fails,
+                # so /chat/active stops reporting this job as active.
+                job.complete()
 
 
 async def _run_with_semaphore(sm: StreamManager, job: GenerationJob, coro) -> None:
