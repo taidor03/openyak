@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
+import { refreshLatestMessages } from "@/lib/message-cache";
 import { API, queryKeys } from "@/lib/constants";
 import { getChatRoute } from "@/lib/routes";
 import { useChatStore } from "@/stores/chat-store";
@@ -236,7 +237,7 @@ export function useChat(currentSessionId?: string) {
       );
     }
     if (sessionId) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(sessionId) });
+      refreshLatestMessages(sessionId, queryClient);
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(sessionId) });
     }
     queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });

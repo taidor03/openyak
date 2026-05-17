@@ -908,6 +908,14 @@ class SessionPrompt:
         :meth:`rebuild_permissions_and_prompt` so the call sites stay
         single-line and the impure surface is visible in one place.
         """
+        # Resolve wiki_root for Knowledge Center
+        wiki_root = None
+        try:
+            from app.wiki.service import WikiService
+            wiki_root = WikiService.resolve_wiki_root(self.workspace)
+        except Exception:
+            pass
+
         return assemble_system_prompt(
             self.agent,
             cwd=self.directory or os.getcwd(),
@@ -916,6 +924,7 @@ class SessionPrompt:
             workspace_memory_section=self.workspace_memory_section,
             project_instructions=load_project_instructions(self.directory),
             skills_summary=render_skills_section(active_skills_from_registry()),
+            wiki_root=wiki_root,
             now=datetime.now(),
             tz_name=default_tz_name(),
             platform_name=default_platform_name(),

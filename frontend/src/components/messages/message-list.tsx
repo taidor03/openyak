@@ -404,7 +404,7 @@ export function MessageList({
               const groupIsNew = group.messages.some((m) => newMessageIds.has(m.id));
 
               if (
-                (hasActiveStream || showStreamingFallback) &&
+                hasActiveStream &&
                 hasVisibleStreamingReplacement &&
                 isLastOverall &&
                 !showPendingBubble

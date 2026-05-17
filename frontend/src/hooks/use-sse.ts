@@ -17,6 +17,7 @@ import { api } from "@/lib/api";
 import type { SessionResponse } from "@/types/session";
 import type { ArtifactType } from "@/types/artifact";
 import type { PaginatedMessages } from "@/types/message";
+import { mergeLatestPageIntoCache, refreshLatestMessages } from "@/lib/message-cache";
 
 // ─── Module-level state ───
 // Persisted across component mounts to survive React navigation.
@@ -158,9 +159,13 @@ export function useSSE(streamId: string | null) {
       const finishFromDatabase = async (sessionId: string) => {
         textBuffer.flush();
         reasoningBuffer.flush();
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.messages.list(sessionId),
-        });
+
+        // IMPORTANT: Use smart merge instead of invalidateQueries.
+        // invalidateQueries triggers useInfiniteQuery to re-fetch ALL pages
+        // using their stored pageParams. When total has increased, the latest
+        // page's fixed offset no longer covers the newest messages, causing
+        // them to silently vanish from the UI.
+        await refreshLatestMessages(sessionId, queryClient);
         await waitForNextPaint();
 
         // Do not finalize from DB while the backend still reports an active
@@ -191,20 +196,10 @@ export function useSSE(streamId: string | null) {
           // terminal assistant message and dropped out of /chat/active.
           try {
             const latestPage = await api.get<PaginatedMessages>(API.MESSAGES.LIST(sessionId, 50, -1));
+            await queryClient.cancelQueries({ queryKey: queryKeys.messages.list(sessionId) });
             queryClient.setQueryData<InfiniteData<PaginatedMessages>>(
               queryKeys.messages.list(sessionId),
-              (old) => {
-                if (!old) {
-                  return {
-                    pages: [latestPage],
-                    pageParams: [-1],
-                  };
-                }
-                return {
-                  ...old,
-                  pages: [...old.pages.slice(0, -1), latestPage],
-                };
-              },
+              (old) => mergeLatestPageIntoCache(latestPage, old),
             );
             if (!canFinalizeFromPayload(latestPage)) return false;
           } catch {
@@ -616,7 +611,8 @@ export function useSSE(streamId: string | null) {
       persistedLastEventId = id;
       const sessionId = store.getState().sessionId;
       if (sessionId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(sessionId) });
+        // Use smart merge instead of invalidateQueries to preserve older pages
+        refreshLatestMessages(sessionId, queryClient);
       }
     });
 
@@ -652,9 +648,7 @@ export function useSSE(streamId: string | null) {
       const _sid = sessionId;
       if (_sid) {
         setTimeout(() => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.messages.list(_sid),
-          });
+          refreshLatestMessages(_sid, queryClient);
         }, 500);
       }
 
@@ -695,9 +689,7 @@ export function useSSE(streamId: string | null) {
       // Delayed verification refetch (same as DONE handler)
       if (sessionId) {
         setTimeout(() => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.messages.list(sessionId),
-          });
+          refreshLatestMessages(sessionId, queryClient);
         }, 500);
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(sessionId) });
       }

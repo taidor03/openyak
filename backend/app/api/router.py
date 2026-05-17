@@ -8,6 +8,7 @@ from app.api import agents as agents_api
 from app.api import artifacts as artifacts_api
 from app.api import automations as automations_api
 from app.api import workspace_memory as workspace_memory_api
+from app.api import wiki as wiki_api
 from app.api import channels as channels_api
 from app.api import ollama as ollama_api
 from app.api import chat as chat_api
@@ -53,3 +54,4 @@ api_router.include_router(ollama_api.router, tags=["ollama"])
 api_router.include_router(rapid_mlx_api.router, tags=["rapid-mlx"])
 api_router.include_router(channels_api.router, tags=["channels"])
 api_router.include_router(workspace_memory_api.router, tags=["workspace-memory"])
+api_router.include_router(wiki_api.router, tags=["wiki"])

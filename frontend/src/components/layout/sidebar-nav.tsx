@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, BookOpen } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,11 @@ const NAV_LINKS = [
     href: "/content-workbench",
     labelKey: "contentWorkbench",
     icon: LayoutDashboard,
+  },
+  {
+    href: "/knowledge",
+    labelKey: "knowledgeCenter",
+    icon: BookOpen,
   },
 ] as const;
 
