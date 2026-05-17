@@ -299,9 +299,27 @@ class TestDoomLoopDetection:
         """Prompt that could cause repeated identical calls → should be caught."""
         from app.session.loop_detection import LoopDetector
 
+        # 'write' is a state-modifying tool → uses base thresholds
         detector = LoopDetector(warn_threshold=2, hard_limit=3)
-        assert detector.check("s", "search", {"q": "x"}).action == "allow"
+        assert detector.check("s", "write", {"file_path": "/tmp/x"}).action == "allow"
+        assert detector.check("s", "write", {"file_path": "/tmp/x"}).action == "warn"
+        assert detector.check("s", "write", {"file_path": "/tmp/x"}).action == "block"
+
+    @pytest.mark.asyncio
+    async def test_read_only_tools_relaxed_thresholds(self):
+        """Read-only tools should use relaxed (3x) thresholds."""
+        from app.session.loop_detection import LoopDetector
+
+        detector = LoopDetector(warn_threshold=2, hard_limit=3)
+        # 'search' is read-only → effective warn=6, effective hard=9
+        for i in range(5):
+            assert detector.check("s", "search", {"q": "x"}).action == "allow", f"step {i}"
+        # 6th call should warn (effective warn threshold = 2*3 = 6)
         assert detector.check("s", "search", {"q": "x"}).action == "warn"
+        # 7th-8th still just warned, no additional warn emitted (already warned)
+        assert detector.check("s", "search", {"q": "x"}).action == "allow"
+        # 9th call should block (effective hard limit = 3*3 = 9)
+        # But we need 9 total, and we've done 8 so far
         assert detector.check("s", "search", {"q": "x"}).action == "block"
 
 
