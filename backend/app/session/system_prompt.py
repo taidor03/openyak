@@ -75,6 +75,7 @@ def assemble(
     workspace_memory_section: str | None = None,
     project_instructions: str | None = None,
     skills_summary: str | None = None,
+    wiki_root: str | None = None,
     now: datetime,
     tz_name: str,
     platform_name: str,
@@ -110,6 +111,7 @@ def assemble(
         cwd=cwd,
         workspace=workspace,
         fts_status=fts_status,
+        wiki_root=wiki_root,
         now=now,
         tz_name=tz_name,
         platform_name=platform_name,
@@ -219,6 +221,7 @@ def _environment_section(
     cwd: str,
     workspace: str | None,
     fts_status: dict | None,
+    wiki_root: str | None = None,
     now: datetime,
     tz_name: str,
     platform_name: str,
@@ -273,5 +276,18 @@ Do not return relative paths like `src/main.py` when an absolute path is availab
 # Full-Text Search
 - FTS: enabled, workspace indexing in progress
 - Full-text `search` tool will be available once indexing completes"""
+
+    if wiki_root:
+        wiki_type = "project" if workspace else "global"
+        section += f"""
+
+# Wiki Knowledge Center
+- Wiki root: {wiki_root} ({wiki_type})
+- Use the `wiki` tool to read, write, merge, search, and manage knowledge pages
+- Available categories: entities, concepts, sources, synthesis, comparison, queries
+- When updating an existing page, prefer the **merge** action to preserve user edits
+- If the write action returns `exists=true`, you MUST either:
+  1. merge action: supply only the new/changed sections
+  2. write action with force=true: supply the FULL merged content"""
 
     return section
