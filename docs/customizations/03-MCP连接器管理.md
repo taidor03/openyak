@@ -5,6 +5,36 @@
 
 ---
 
+## ⚠ 实现偏差记录（2025-05 修复）
+
+### 偏差1: 自定义 MCP 的启用切换按钮冷启动不显示
+
+**现象**: 新打开软件时，自定义 MCP 行的启用/禁用 Switch 按钮不显示，编辑保存任一个 MCP 后才出现。
+
+**根因**: `CustomMcpRow` 组件中 Switch 依赖 `connector` 对象（来自 `/api/connectors`），但 connector 数据仅在 `ConnectorRegistry` 注册后才会返回。自定义 MCP 的配置数据来自 `useMcpConfig`（`/api/mcp/user-config`），而 connector 的 `enabled` 状态来自 `useConnectors`（`/api/connectors`）。当后端还没来得及将用户配置的 MCP 注册为 connector 时，`connectorsData?.[id]` 为 `undefined`，原代码用 `{connector && <Switch .../>}` 条件渲染，导致 Switch 不显示。
+
+**修复**: 在 `CustomMcpRow` 中，当 `connector` 不存在时，从 MCP 配置数据推断默认的 enabled 状态（新添加的 MCP 默认启用），并始终显示 Switch：
+
+```typescript
+// 使用 connector 状态（可用时）；否则从配置推断
+// （connector 可能在冷启动时 undefined，后端尚未注册）
+const isEnabled = connector ? connector.enabled : true;
+const status = connector
+  ? connector.enabled ? connector.status : "disabled"
+  : "disconnected";  // 非 "disabled"，避免显示灰色
+
+// Switch 始终渲染，不依赖 connector 存在
+<Switch
+  checked={isEnabled}
+  disabled={toggle.isPending}
+  onCheckedChange={(checked) => toggle.mutate({ id, enable: checked })}
+/>
+```
+
+**关键点**: 当 `connector` 不存在时，`status` 应为 `"disconnected"` 而非 `"disabled"`，否则 StatusDot 会显示灰色误导用户。
+
+---
+
 ## 一、功能概述
 
 1. **MCP 管理页**：设置页新增 MCP 标签页，对话框式 CRUD 管理
@@ -280,3 +310,5 @@ class ConnectorInfo:
 - [ ] `_build_local_env()` PATH 注入（5 个 Node.js 目录 + os.environ 基底）
 - [ ] `ConnectorInfo.no_auth_required` 字段
 - [ ] `ConnectorInfo.source` 字段（"builtin" | "user-config"）
+- [ ] **[偏差修复]** `CustomMcpRow` Switch 不依赖 connector 存在，冷启动时从配置推断 enabled 状态
+- [ ] **[偏差修复]** connector undefined 时 status 为 "disconnected" 非 "disabled"

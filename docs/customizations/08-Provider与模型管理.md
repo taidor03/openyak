@@ -193,7 +193,63 @@ Provider/Model 缓存使用独立的 `provider-cache.ts`，与通用 `query-pers
 
 ---
 
-## 七、重新实现检查清单
+## 七、前端实现细节
+
+### 7.1 自定义端点表单 (`custom-endpoint-form.tsx`)
+
+表单添加 `model_ids` 输入框（逗号分隔），提交时解析为数组：
+
+```typescript
+const [modelIds, setModelIds] = useState("");
+
+// 提交时解析
+const parsedModelIds = modelIds.trim()
+  ? modelIds.split(",").map((s) => s.trim()).filter(Boolean)
+  : undefined;
+
+api.post(API.CONFIG.CUSTOM_ENDPOINT, {
+  name, api_key, base_url,
+  model_ids: parsedModelIds,
+});
+```
+
+placeholder 文案使用 i18n 键 `endpointModelIdsPlaceholder`。
+
+### 7.2 已保存端点显示 (`custom-endpoint-panel.tsx`)
+
+已保存端点列表中，根据 `model_ids` 是否存在显示不同内容：
+
+```typescript
+{p.model_ids && p.model_ids.length > 0 ? (
+  <span className="...font-mono">
+    {t("pinnedModels")}: {p.model_ids.join(", ")}
+  </span>
+) : (
+  <span>{t("modelsCount", { count: p.model_count })}</span>
+)}
+```
+
+### 7.3 后端 API 端到端 model_ids 处理
+
+**创建端点** (`POST /config/custom`):
+- 从 `body.model_ids` 读取，传递给 `create_desktop_provider(model_ids=...)`
+- 持久化配置中包含 `model_ids`（非空时才写入）
+- 返回 `ProviderInfo.model_ids`
+
+**更新端点** (`PATCH /config/custom/{id}`):
+- `model_ids` 字段支持部分更新（null = 保持原值）
+- 重建 provider 时传递 `model_ids`
+- 返回 `ProviderInfo.model_ids`
+
+**启动加载** (`main.py`):
+- `create_desktop_provider(pid, ..., model_ids=ce.get("model_ids"))` — 确保重启后 pinned models 依然生效
+
+**列表查询** (`GET /config/providers`):
+- `_build_custom_endpoint_info` 中包含 `ce.get("model_ids", [])`
+
+---
+
+## 八、重新实现检查清单
 
 - [ ] `ProviderEndpoint.model_ids: list[str] | None` 字段
 - [ ] `ProviderEndpointUpdate.model_ids: list[str] | None` 字段
@@ -204,3 +260,11 @@ Provider/Model 缓存使用独立的 `provider-cache.ts`，与通用 `query-pers
 - [ ] `provider-cache.ts`（PROVIDERS_KEY=`xflow:providers_v1`, MODELS_KEY=`xflow:models_v1`）
 - [ ] `useProviders` 注入缓存 initialData + 获取成功后写缓存
 - [ ] `use-auto-detect-provider` 配合 model_ids 调整
+- [ ] **[前端]** `custom-endpoint-form.tsx` 添加 modelIds 输入框（逗号分隔，提交解析为数组）
+- [ ] **[前端]** `custom-endpoint-panel.tsx` 已保存端点显示 pinnedModels 或 modelsCount
+- [ ] **[前端]** i18n 键: endpointModelIds, endpointModelIdsPlaceholder, pinnedModels, modelsCount
+- [ ] **[后端]** `create_custom_endpoint` 保存 model_ids 到持久化配置
+- [ ] **[后端]** `update_custom_endpoint` 支持 model_ids 部分更新
+- [ ] **[后端]** `_build_custom_endpoint_info` 返回 model_ids
+- [ ] **[后端]** `main.py` 启动加载时传递 model_ids 给 create_desktop_provider
+- [ ] **[模型缓存]** `useModels` 使用 `provider-cache.ts` 的 initialData + 写回缓存
