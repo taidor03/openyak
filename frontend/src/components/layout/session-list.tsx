@@ -10,7 +10,7 @@ import { API, queryKeys } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { useChatStore } from "@/stores/chat-store";
 import { useSidebarStore } from "@/stores/sidebar-store";
-import { useSessions, useDeleteSession, useRenameSession, usePinSession, useArchiveSession, useUnarchiveSession, useSearchSessions } from "@/hooks/use-sessions";
+import { useSessions, useDeleteSession, useRenameSession, usePinSession, useArchiveSession, useUnarchiveSession, useSearchSessions, useArchivedSessions } from "@/hooks/use-sessions";
 import { useActiveSessionId } from "@/hooks/use-active-session-id";
 import { useSessionExport } from "@/hooks/use-session-export";
 import { SessionItem } from "./session-item";
@@ -19,6 +19,7 @@ import { ProjectsToolbar } from "./projects-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Check, ChevronRight, Copy, FolderClosed, FolderOpen, Loader2, MessageSquare, SearchX, SquarePen } from "lucide-react";
+import { writeSessionsCache } from "@/lib/session-cache";
 import { getChatRoute } from "@/lib/routes";
 import { cn, groupSessionsByDate, groupSessionsByWorkspace } from "@/lib/utils";
 import type { SessionResponse } from "@/types/session";
@@ -53,22 +54,53 @@ export function SessionList() {
   const toggleProjectCollapsed = useSidebarStore((s) => s.toggleProjectCollapsed);
   const organizeMode = useSidebarStore((s) => s.organizeMode);
   const sortBy = useSidebarStore((s) => s.sortBy);
+  const showArchived = useSidebarStore((s) => s.showArchived);
   const isContentSearch = searchQuery.trim().length >= 2;
   const hasSearch = searchQuery.trim().length > 0;
   const { data: searchResults, isLoading: isSearching } = useSearchSessions(searchQuery);
+
+  // Archived sessions query (enabled only when showArchived is true)
+  const {
+    data: archivedPages,
+    isLoading: isArchivedLoading,
+  } = useArchivedSessions(showArchived);
+
+  // Active session IDs — component-local polling for generating indicators
+  const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const jobs = await api.get<Array<{ stream_id: string; session_id: string }>>(API.CHAT.ACTIVE);
+        if (!active) return;
+        setActiveSessionIds(new Set(jobs.map((j) => j.session_id)));
+      } catch {
+        // Silently ignore
+      }
+      if (active) {
+        timer = setTimeout(poll, 5_000);
+      }
+    };
+    poll();
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, []);
 
   // Flatten infinite query pages into a single, stable list. Offset pagination can
   // briefly overlap pages after pin/archive mutations reorder the server result.
   const sessions = useMemo(() => {
     const seen = new Set<string>();
     const unique: SessionResponse[] = [];
-    for (const session of sessionPages?.pages.flat() ?? []) {
+    // When showing archived, use archived query data; otherwise normal sessions
+    const pages = showArchived ? archivedPages?.pages : sessionPages?.pages;
+    for (const session of pages?.flat() ?? []) {
       if (seen.has(session.id)) continue;
       seen.add(session.id);
       unique.push(session);
     }
     return unique;
-  }, [sessionPages]);
+  }, [showArchived, sessionPages, archivedPages]);
 
   // Roving tabindex: track which session item is focused
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
@@ -283,6 +315,13 @@ export function SessionList() {
     return () => clearTimeout(timer);
   }, [isError, refetch]);
 
+  // Write session cache after all pages loaded (only in non-archived view)
+  useEffect(() => {
+    if (!showArchived && !hasNextPage && !isFetchingNextPage && sessions.length > 0) {
+      writeSessionsCache(sessions);
+    }
+  }, [showArchived, hasNextPage, isFetchingNextPage, sessions]);
+
   // Compute session-only indices for keyboard navigation (skip headers)
   const sessionIndices = useMemo(
     () => flatItems.reduce<number[]>((acc, item, i) => {
@@ -465,7 +504,7 @@ export function SessionList() {
   }, []);
 
 
-  if (isLoading || (isContentSearch && isSearching) || (isError && sessions.length === 0)) {
+  if (isLoading || (isContentSearch && isSearching) || (isError && sessions.length === 0) || (showArchived && isArchivedLoading)) {
     return (
       <div className="flex-1 px-4 py-3">
         <div className="flex h-full min-h-0 flex-col gap-2">
@@ -562,12 +601,15 @@ export function SessionList() {
                   <SessionItem
                     session={item.session}
                     isActive={activeSessionId === item.session.id}
+                    isGenerating={activeSessionIds.has(item.session.id)}
+                    isArchived={showArchived}
                     onDelete={handleDeleteRequest}
                     onRename={handleRename}
                     onExportPdf={exportPdf}
                     onExportMarkdown={exportMarkdown}
                     onTogglePin={handleTogglePin}
                     onArchive={handleArchive}
+                    onUnarchive={showArchived ? (id) => unarchiveSession.mutate({ id }) : undefined}
                     isEditing={editingId === item.session.id}
                     onEditStart={handleEditStart}
                     onEditEnd={handleEditEnd}
@@ -694,9 +736,19 @@ function ProjectRow({
             )}
             <span className="flex-1 truncate text-left">{label}</span>
           </button>
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ui-3xs text-[var(--text-tertiary)]">
+          <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-ui-3xs text-[var(--text-tertiary)]">
             {count}
           </span>
+          {/* Quick new chat button — visible on hover */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); startNewChat(); }}
+            className="absolute right-1.5 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-tertiary)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
+            aria-label={t("startNewChatInProject")}
+            title={t("startNewChatInProject")}
+          >
+            <SquarePen className="h-3.5 w-3.5" />
+          </button>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">

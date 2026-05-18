@@ -804,10 +804,20 @@ export function useSSE(streamId: string | null) {
         reasoningBufferRef.current = null;
         client.close();
         clientRef.current = null;
+        const capturedSessionId = store.getState().sessionId;
         if (store.getState().isGenerating) {
           // Reset module-level state so a future stream doesn't inherit stale values
           persistedLastEventId = 0;
           currentStreamId = null;
+          // Recovery: if no new SSE hook takes over within 3 seconds,
+          // force finishGeneration so UI is not stuck in "generating"
+          setTimeout(() => {
+            if (store.getState().isGenerating && store.getState().sessionId === capturedSessionId) {
+              console.warn("SSE cleanup recovery: forcing finishGeneration after navigation away");
+              store.getState().finishGeneration();
+              connectionStore.getState().setStatus("idle");
+            }
+          }, 3_000);
         } else {
           connectionStore.getState().setStatus("idle");
         }

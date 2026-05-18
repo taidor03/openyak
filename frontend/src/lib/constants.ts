@@ -229,8 +229,8 @@ export const API = {
   },
   SESSIONS: {
     BASE: "/api/sessions",
-    LIST: (limit = 50, offset = 0) =>
-      `/api/sessions?limit=${limit}&offset=${offset}`,
+    LIST: (limit = 50, offset = 0, includeArchived = false) =>
+      `/api/sessions?limit=${limit}&offset=${offset}${includeArchived ? "&include_archived=true" : ""}`,
     SEARCH: (q: string, limit = 20, offset = 0) =>
       `/api/sessions/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
     DETAIL: (id: string) => `/api/sessions/${id}`,

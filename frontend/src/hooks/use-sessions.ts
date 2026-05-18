@@ -5,6 +5,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient, type InfiniteD
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
 import type { SessionResponse, SessionCreate, SessionSearchResult } from "@/types/session";
+import { readSessionsCache } from "@/lib/session-cache";
 
 const PAGE_SIZE = 50;
 
@@ -18,11 +19,21 @@ function useDebouncedValue(value: string, delay: number) {
 }
 
 export function useSessions() {
+  // Read cached sessions for instant rendering on cold start
+  const cached = typeof window !== "undefined" ? readSessionsCache() : null;
+
   return useInfiniteQuery({
     queryKey: queryKeys.sessions.all,
     queryFn: ({ pageParam = 0 }) =>
       api.get<SessionResponse[]>(API.SESSIONS.LIST(PAGE_SIZE, pageParam)),
     initialPageParam: 0,
+    initialData: cached && cached.data.length > 0
+      ? {
+          pages: [cached.data],
+          pageParams: [0],
+        }
+      : undefined,
+    staleTime: 0, // Always refetch for fresh data after cache renders
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
     refetchOnReconnect: true,
@@ -166,5 +177,19 @@ export function useSearchSessions(query: string) {
     queryFn: () =>
       api.get<SessionSearchResult[]>(API.SESSIONS.SEARCH(debouncedQuery)),
     enabled: debouncedQuery.trim().length >= 2,
+  });
+}
+
+export function useArchivedSessions(enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["sessions", "archived"] as const,
+    queryFn: ({ pageParam = 0 }) =>
+      api.get<SessionResponse[]>(API.SESSIONS.LIST(PAGE_SIZE, pageParam, true)),
+    initialPageParam: 0,
+    enabled,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      if (lastPage.length < PAGE_SIZE) return undefined;
+      return lastPageParam + PAGE_SIZE;
+    },
   });
 }

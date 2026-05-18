@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Archive, MessageCircle, Pin, PinOff } from "lucide-react";
+import { Archive, ArchiveRestore, MessageCircle, Pin, PinOff, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
@@ -24,12 +24,15 @@ import type { SessionResponse } from "@/types/session";
 interface SessionItemProps {
   session: SessionResponse;
   isActive?: boolean;
+  isGenerating?: boolean;
+  isArchived?: boolean;
   onDelete: (id: string, title: string) => void;
   onRename: (id: string, newTitle: string) => void;
   onExportPdf?: (id: string, title: string) => void;
   onExportMarkdown?: (id: string, title: string) => void;
   onTogglePin?: (id: string, pinned: boolean) => void;
   onArchive?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
   isEditing?: boolean;
   onEditStart?: (id: string) => void;
   onEditEnd?: () => void;
@@ -40,12 +43,15 @@ interface SessionItemProps {
 export const SessionItem = memo(function SessionItem({
   session,
   isActive = false,
+  isGenerating = false,
+  isArchived = false,
   onDelete,
   onRename,
   onExportPdf,
   onExportMarkdown,
   onTogglePin,
   onArchive,
+  onUnarchive,
   isEditing = false,
   onEditStart,
   onEditEnd,
@@ -264,6 +270,13 @@ export const SessionItem = memo(function SessionItem({
             isEditing && "ring-1 ring-[var(--brand-primary)]",
           )}
         >
+          {/* Generating pulse indicator */}
+          {isGenerating && !isEditing && (
+            <span className="absolute left-2 top-1/2 z-0 flex h-2 w-2 -translate-y-1/2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--brand-primary)] opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--brand-primary)]" />
+            </span>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -338,7 +351,7 @@ export const SessionItem = memo(function SessionItem({
             </span>
           )}
 
-          {!isEditing && (
+          {!isEditing && !isArchived && (
             <button
               type="button"
               onClick={(e) => {
@@ -354,6 +367,28 @@ export const SessionItem = memo(function SessionItem({
             >
               <Archive className="h-3.5 w-3.5" />
             </button>
+          )}
+          {!isEditing && isArchived && (
+            <div className="absolute right-1.5 top-1/2 z-10 flex items-center gap-0.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/session:opacity-100">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onUnarchive?.(session.id); }}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--surface-tertiary)] hover:text-[var(--text-primary)]"
+                aria-label={t('restoreChat', { defaultValue: 'Restore' })}
+                title={t('restoreChat', { defaultValue: 'Restore' })}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(session.id, title); }}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-red-500/10 hover:text-red-500"
+                aria-label={t('delete')}
+                title={t('delete')}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           )}
         </div>
       </ContextMenuTrigger>

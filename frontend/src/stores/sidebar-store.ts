@@ -23,6 +23,8 @@ interface SidebarStore {
   organizeMode: OrganizeMode;
   /** Which timestamp sessions are sorted by */
   sortBy: SortBy;
+  /** Whether to show archived sessions in the sidebar */
+  showArchived: boolean;
   /** Current sidebar width (drag-resizable) */
   width: number;
   setOpen: (open: boolean) => void;
@@ -34,6 +36,7 @@ interface SidebarStore {
   setSearchModalOpen: (open: boolean) => void;
   setOrganizeMode: (mode: OrganizeMode) => void;
   setSortBy: (sortBy: SortBy) => void;
+  setShowArchived: (v: boolean) => void;
   collapseAllProjects: (directories: string[]) => void;
   expandAllProjects: () => void;
   setWidth: (width: number) => void;
@@ -54,6 +57,7 @@ export const useSidebarStore = create<SidebarStore>()(
       isSearchModalOpen: false,
       organizeMode: "by-project",
       sortBy: "updated",
+      showArchived: false,
       width: SIDEBAR_WIDTH,
       setOpen: (open) => set({ isOpen: open }),
       toggle: () => set((s) => ({ isCollapsed: !s.isCollapsed })),
@@ -73,6 +77,7 @@ export const useSidebarStore = create<SidebarStore>()(
       setSearchModalOpen: (open) => set({ isSearchModalOpen: open }),
       setOrganizeMode: (mode) => set({ organizeMode: mode }),
       setSortBy: (sortBy) => set({ sortBy }),
+      setShowArchived: (v) => set({ showArchived: v }),
       collapseAllProjects: (directories) =>
         set(() => {
           const next: Record<string, boolean> = {};
