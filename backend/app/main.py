@@ -567,6 +567,11 @@ def _register_builtin_tools(
     # SkillTool needs the skill registry injected
     registry.register(SkillTool(skill_registry=skill_registry))
 
+    # xflow API tools — always registered; tools surface a config error when invoked without credentials
+    from app.tool.builtin.xflow_tools import ALL_XFLOW_TOOLS
+    for xflow_tool_cls in ALL_XFLOW_TOOLS:
+        registry.register(xflow_tool_cls())
+
     if settings is not None and settings.fts_enabled:
         from app.tool.builtin.search import SearchTool
         registry.register(SearchTool())

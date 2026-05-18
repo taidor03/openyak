@@ -274,6 +274,7 @@ export const API = {
       "/api/config/openai-subscription/manual-callback",
     OLLAMA: "/api/config/ollama",
     LOCAL_PROVIDER: "/api/config/local",
+    XFLOW: "/api/config/xflow",
   },
   FTS: {
     INDEX: (workspace: string, sessionId?: string) =>
@@ -419,8 +420,10 @@ export const queryKeys = {
   },
   workspaceMemory: (workspace: string) =>
     ["workspaceMemory", workspace] as const,
-  workspaceMemoryList: ["workspaceMemoryList"] as const,
+    workspaceMemoryList: ["workspaceMemoryList"] as const,
   indexStatus: (workspace: string) => ["indexStatus", workspace] as const,
+  xflowConfig: ["xflowConfig"] as const,
+  xflowDashboard: ["xflow", "dashboard"] as const,
 } as const;
 
 /** UI constants */

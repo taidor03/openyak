@@ -11,7 +11,7 @@ from app.skill.model import SkillInfo, parse_skill_file
 logger = logging.getLogger(__name__)
 
 # Directories under a project root (or home dir) that may contain skills.
-_EXTERNAL_SKILL_DIRS = [".claude", ".agents"]
+_EXTERNAL_SKILL_DIRS = [".claude", ".agents", ".cursor"]
 _OPENYAK_SKILL_DIR = ".openyak"
 
 

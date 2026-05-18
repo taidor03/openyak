@@ -8,6 +8,7 @@ import {
   BarChart3,
   Brain,
   ShieldCheck,
+  LayoutDashboard,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -27,6 +28,7 @@ export const SETTINGS_TABS = [
   { id: "remote", icon: Wifi, labelKey: "tabRemote" },
   { id: "usage", icon: BarChart3, labelKey: "tabUsage" },
   { id: "memory", icon: Brain, labelKey: "tabMemory" },
+  { id: "xflow", icon: LayoutDashboard, labelKey: "tabXflow" },
 ] as const satisfies readonly SettingsTab[];
 
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];

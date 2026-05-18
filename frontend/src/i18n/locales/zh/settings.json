@@ -258,5 +258,17 @@
   "mcpDelete": "删除",
   "mcpDeleted": "MCP 服务器已移除",
   "mcpRetry": "重试",
-  "mcpTools": "个工具"
+  "mcpTools": "个工具",
+  "tabXflow": "xflow",
+  "xflowApiUrl": "xflow API 地址",
+  "xflowApiToken": "xflow API Token",
+  "xflowApiUrlPlaceholder": "https://your-xflow-api.com",
+  "xflowApiTokenPlaceholder": "Bearer Token",
+  "xflowTestConnection": "测试连接",
+  "xflowTestingConnection": "正在测试...",
+  "xflowConnectionSuccess": "连接成功",
+  "xflowConnectionFailed": "连接失败",
+  "xflowSave": "保存配置",
+  "xflowClear": "清除配置",
+  "xflowDesc": "配置 xflow 内容管理 API 以启用内容工作台。"
 }

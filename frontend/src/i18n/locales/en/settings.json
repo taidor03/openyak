@@ -258,5 +258,17 @@
   "mcpDelete": "Delete",
   "mcpDeleted": "MCP server removed",
   "mcpRetry": "Retry",
-  "mcpTools": "tools"
+  "mcpTools": "tools",
+  "tabXflow": "xflow",
+  "xflowApiUrl": "xflow API URL",
+  "xflowApiToken": "xflow API Token",
+  "xflowApiUrlPlaceholder": "https://your-xflow-api.com",
+  "xflowApiTokenPlaceholder": "Bearer Token",
+  "xflowTestConnection": "Test Connection",
+  "xflowTestingConnection": "Testing...",
+  "xflowConnectionSuccess": "Connection successful",
+  "xflowConnectionFailed": "Connection failed",
+  "xflowSave": "Save Config",
+  "xflowClear": "Clear Config",
+  "xflowDesc": "Configure the xflow content management API to enable the Content Workbench."
 }

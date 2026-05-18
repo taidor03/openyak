@@ -12,6 +12,7 @@ import { GeneralTab } from "@/components/settings/general-tab";
 import { ProvidersTab } from "@/components/settings/providers-tab";
 import { UsageSkeleton } from "@/components/settings/usage-tab";
 import { MemoryTab } from "@/components/settings/memory-tab";
+import { XflowTab } from "@/components/settings/xflow-tab";
 import { PermissionsTab } from "@/components/settings/permissions-tab";
 import { McpTab } from "@/components/settings/mcp-tab";
 import { AutomationsTabContent } from "@/app/(main)/automations/content";
@@ -35,7 +36,7 @@ function toSettingsTabId(value: string | null | undefined): SettingsTabId {
 }
 
 export default function SettingsPageClient({ initialTab }: SettingsPageClientProps) {
-  const { t } = useTranslation(["settings", "usage"]);
+  const { t } = useTranslation(["settings", "usage", "contentWorkbench"]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedTab = initialTab ?? toSettingsTabId(searchParams.get("tab"));
@@ -102,6 +103,7 @@ export default function SettingsPageClient({ initialTab }: SettingsPageClientPro
           {activeTab === "remote" && <RemoteTabContent />}
           {activeTab === "usage" && <UsageTab />}
           {activeTab === "memory" && <MemoryTab />}
+          {activeTab === "xflow" && <XflowTab />}
         </div>
       </div>
     </div>

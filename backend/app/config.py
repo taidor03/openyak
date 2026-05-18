@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # --- Database ---
     database_url: str = "sqlite+aiosqlite:///./data/openyak.db"
 
+    # --- xflow API ---
+    xflow_api_url: str = ""    # OPENYAK_XFLOW_API_URL
+    xflow_api_token: str = ""  # OPENYAK_XFLOW_API_TOKEN
+
     # --- Server ---
     host: str = "0.0.0.0"
     port: int = 8090
