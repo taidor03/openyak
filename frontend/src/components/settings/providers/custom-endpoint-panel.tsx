@@ -174,7 +174,13 @@ export function CustomEndpointPanel({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-ui-3xs text-[var(--text-tertiary)]">
-                    {p.model_count} models
+                    {p.model_ids && p.model_ids.length > 0 ? (
+                      <span className="font-mono">
+                        {t("pinnedModels")}: {p.model_ids.join(", ")}
+                      </span>
+                    ) : (
+                      t("modelsCount", { count: p.model_count })
+                    )}
                   </span>
                   <button
                     type="button"

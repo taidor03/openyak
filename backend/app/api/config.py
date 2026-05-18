@@ -73,6 +73,7 @@ def _build_custom_endpoint_info(
         model_count=model_count,
         status=status,
         base_url=ce.get("base_url"),
+        model_ids=ce.get("model_ids", []),
     )
 
 
@@ -553,11 +554,12 @@ async def create_custom_endpoint(
     base_url = body.base_url
     api_key = body.api_key.strip() if body.api_key else ""
     name = body.name.strip() or "Custom Endpoint"
+    model_ids = body.model_ids if body.model_ids else []
 
     endpoint_id = f"custom_{uuid.uuid4().hex[:8]}"
 
     try:
-        test_provider = create_desktop_provider(endpoint_id, api_key, base_url=base_url)
+        test_provider = create_desktop_provider(endpoint_id, api_key, base_url=base_url, model_ids=model_ids or None)
         models = await test_provider.list_models()
     except Exception as e:
         logger.warning("Failed validation for custom endpoint %s: %s", name, e)
@@ -570,8 +572,10 @@ async def create_custom_endpoint(
             "name": name,
             "base_url": base_url,
             "api_key": api_key,
-            "enabled": True
+            "enabled": True,
         }
+        if model_ids:
+            new_config["model_ids"] = model_ids
         endpoints.append(new_config)
 
         settings.custom_endpoints = json.dumps(endpoints)
@@ -586,7 +590,8 @@ async def create_custom_endpoint(
     return ProviderInfo(
         id=endpoint_id, name=name, is_configured=True, enabled=True,
         masked_key=_mask_key(api_key) if api_key else None,
-        model_count=len(models), status="connected", base_url=base_url
+        model_count=len(models), status="connected", base_url=base_url,
+        model_ids=model_ids,
     )
 
 @router.delete("/config/custom/{endpoint_id}", response_model=ProviderInfo)
@@ -645,11 +650,12 @@ async def update_custom_endpoint(
     base_url = body.base_url if body.base_url is not None else found.get("base_url", "")
     api_key = body.api_key.strip() if body.api_key is not None else found.get("api_key", "")
     enabled = body.enabled if body.enabled is not None else found.get("enabled", True)
+    model_ids = body.model_ids if body.model_ids is not None else found.get("model_ids", [])
 
     # --- Phase 2: validate (outside lock — network I/O) ---
-    if needs_rebuild:
+    if needs_rebuild or (body.model_ids is not None and body.model_ids != found.get("model_ids", [])):
         try:
-            test_provider = create_desktop_provider(endpoint_id, api_key, base_url=base_url)
+            test_provider = create_desktop_provider(endpoint_id, api_key, base_url=base_url, model_ids=model_ids or None)
             models = await test_provider.list_models()
         except Exception as e:
             logger.warning("Failed validation for custom endpoint %s: %s", name, e)
@@ -672,13 +678,14 @@ async def update_custom_endpoint(
             "base_url": base_url,
             "api_key": api_key,
             "enabled": enabled,
+            "model_ids": model_ids or [],
         }
         endpoints[found_idx] = updated_config
 
         settings.custom_endpoints = json.dumps(endpoints)
         _update_env_file("OPENYAK_CUSTOM_ENDPOINTS", settings.custom_endpoints)
 
-    if enabled and needs_rebuild and test_provider is not None:
+    if enabled and (needs_rebuild or (body.model_ids is not None)) and test_provider is not None:
         registry.unregister(endpoint_id)
         registry.register(test_provider)
         try:
@@ -691,7 +698,8 @@ async def update_custom_endpoint(
     return ProviderInfo(
         id=endpoint_id, name=name, is_configured=True, enabled=enabled,
         masked_key=_mask_key(api_key) if api_key else None,
-        model_count=len(models), status="connected" if enabled else "disabled", base_url=base_url
+        model_count=len(models), status="connected" if enabled else "disabled", base_url=base_url,
+        model_ids=model_ids or [],
     )
 
 @router.get("/config/local", response_model=LocalProviderStatus)

@@ -28,20 +28,27 @@ export function CustomEndpointForm() {
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [modelIds, setModelIds] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const createEndpoint = useMutation({
-    mutationFn: () =>
-      api.post<ProviderInfo>(API.CONFIG.CUSTOM_ENDPOINT, {
+    mutationFn: () => {
+      const parsedModelIds = modelIds.trim()
+        ? modelIds.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      return api.post<ProviderInfo>(API.CONFIG.CUSTOM_ENDPOINT, {
         name: name || "Custom Endpoint",
         api_key: apiKey,
         base_url: baseUrl,
-      }),
+        model_ids: parsedModelIds,
+      });
+    },
     onSuccess: () => {
       setName("");
       setBaseUrl("");
       setApiKey("");
+      setModelIds("");
       setError(null);
       qc.invalidateQueries({ queryKey: queryKeys.providers });
       qc.invalidateQueries({ queryKey: queryKeys.models });
@@ -94,6 +101,13 @@ export function CustomEndpointForm() {
             )}
           </button>
         </div>
+        <Input
+          type="text"
+          value={modelIds}
+          onChange={(e) => setModelIds(e.target.value)}
+          placeholder={t("endpointModelIdsPlaceholder")}
+          className="font-mono text-xs bg-[var(--surface-primary)]"
+        />
         <div className="flex items-center justify-between">
           {error && (
             <div className="flex items-center gap-1.5 text-xs text-[var(--color-destructive)]">

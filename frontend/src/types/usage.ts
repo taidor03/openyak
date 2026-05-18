@@ -68,6 +68,7 @@ export interface ProviderInfo {
   model_count: number;
   status: "connected" | "error" | "unconfigured" | "disabled";
   base_url?: string;
+  model_ids: string[]; // Pinned model IDs for custom endpoints; empty = auto-discover
 }
 
 export interface LocalProviderStatus {

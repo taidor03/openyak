@@ -36,6 +36,7 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         base_url: str,
         kind: str = "openai_compat",
         default_headers: dict[str, str] | None = None,
+        model_ids: list[str] | None = None,
     ):
         super().__init__(
             api_key=api_key,
@@ -46,6 +47,7 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         self._api_key = api_key
         self._provider_id = provider_id
         self._kind = kind
+        self._pinned_model_ids = model_ids or []
         self._models_cache: list[ModelInfo] | None = None
 
     @property
@@ -53,9 +55,31 @@ class GenericOpenAIProvider(OpenAICompatProvider):
         return self._provider_id
 
     async def list_models(self) -> list[ModelInfo]:
-        """Return models with metadata. Merges models.dev + yakAgent catalog + API."""
+        """Return models with metadata. Merges models.dev + yakAgent catalog + API.
+
+        When ``_pinned_model_ids`` is non-empty, return synthetic ModelInfo
+        entries without any API calls — the user has explicitly specified which
+        models the endpoint exposes.
+        """
         if self._models_cache is not None:
             return self._models_cache
+
+        # When explicit model IDs are pinned, skip auto-discovery entirely.
+        if self._pinned_model_ids:
+            models = []
+            for mid in self._pinned_model_ids:
+                ctx = _infer_context_from_name(mid)
+                models.append(ModelInfo(
+                    id=mid,
+                    name=mid,
+                    provider_id=self._provider_id,
+                    capabilities=ModelCapabilities(
+                        function_calling=True,
+                        max_context=ctx,
+                    ),
+                ))
+            self._models_cache = models
+            return models
 
         models = []
         seen_ids = set()
