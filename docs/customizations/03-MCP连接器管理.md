@@ -2,7 +2,7 @@
 
 > **定制编号**: XFLOW-015
 > **涉及范围**: MCP 管理页 + 动态配置热重载 + headers 支持 + 后台连接 + PATH 注入
-
+git 历史`7ac0fab` `4ac128b`就是之前实施 03 定制的提交， 可参考提取。
 ---
 
 ## ⚠ 实现偏差记录（2025-05 修复）
@@ -32,6 +32,130 @@ const status = connector
 ```
 
 **关键点**: 当 `connector` 不存在时，`status` 应为 `"disconnected"` 而非 `"disabled"`，否则 StatusDot 会显示灰色误导用户。
+
+### 偏差2: MCP 管理页交互方式丢失
+
+**现象**: 03 定制实施后 MCP 标签页被简化，丢失了 git `7ac0fab`/`4ac128b` 原有的交互方式：内置 MCP 区域消失、Dialog 弹窗编辑变为内联表单、Badge 视觉元素缺失。
+
+**根因**: 后续定制迭代重写了 `mcp-tab.tsx`，未保留原 `4ac128b` 版本的完整 UI 结构。
+
+**修复**: 按 `7ac0fab`/`4ac128b` 的交互方式完整还原，适配当前 API 格式（`{ config: ... }` 而非原 `{ mcpServers: ... }`）：
+
+#### 2a. 内置 MCP 区域还原
+
+`McpTab` 组件从 `useConnectors` 数据中筛选 `referenced_by.includes("__builtin__")` 的连接器，单独展示在「内置搜索 MCP」区域：
+
+```tsx
+export function McpTab() {
+  const { data } = useConnectors();
+
+  const builtinMcps = Object.entries(data?.connectors ?? {}).filter(
+    ([, c]) => c.referenced_by?.includes("__builtin__"),
+  );
+
+  return (
+    <div className="space-y-8">
+      {/* 内置 MCPs */}
+      <section>
+        <h2>内置搜索 MCP</h2>
+        <p>零配置、无需 API Key 的内置搜索工具。本地工具需要系统已安装 Node.js。</p>
+        {builtinMcps.length === 0 ? (
+          <div><WifiOff /> 暂无内置 MCP（后端启动中...）</div>
+        ) : (
+          <div className="rounded-lg border divide-y">
+            {builtinMcps.map(([id, connector]) => (
+              <BuiltinMcpRow key={id} id={id} connector={connector} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 自定义 MCPs */}
+      <CustomMcpSection connectorsData={data?.connectors} />
+    </div>
+  );
+}
+```
+
+#### 2b. BuiltinMcpRow 组件
+
+每行展示：StatusDot + 名称 + 类型 Badge（本地/远程）+ 状态 Badge（已连接/连接失败）+ 启用开关：
+
+```tsx
+function BuiltinMcpRow({ id, connector }: { id: string; connector: ConnectorInfo }) {
+  const toggle = useConnectorToggle();
+  return (
+    <div className="flex items-start gap-3 py-3 border-b last:border-0">
+      <StatusDot status={connector.enabled ? connector.status : "disabled"} />
+      <div className="flex-1">
+        {/* 名称 + Badge（Terminal/Globe + 本地/远程） */}
+        {/* 已连接: CheckCircle2 + tools_count */}
+        {/* 连接失败: XCircle + 红色 Badge */}
+        {/* 描述 + 本地工具提示 */}
+      </div>
+      <Switch checked={connector.enabled} onCheckedChange={...} />
+    </div>
+  );
+}
+```
+
+#### 2c. Dialog 弹窗编辑还原
+
+用 `Dialog` 组件替代内联表单，支持 JSON 格式编辑：
+
+```tsx
+function McpEntryDialog({ open, onClose, initial, allServers, onSave, isSaving }) {
+  // draft: JSON 文本编辑
+  // parseError: 实时 JSON 校验
+  // 验证规则：local 必须有 command, remote 必须有 url
+  // 保存逻辑：合并到 allServers（编辑时先删除旧 key）
+  return (
+    <Dialog open={open} onOpenChange={...}>
+      <DialogContent className="max-w-lg">
+        <DialogTitle>添加/编辑 MCP 服务器</DialogTitle>
+        <textarea rows={14} font-mono placeholder={ENTRY_PLACEHOLDER} />
+        {parseError && <XCircle /> parseError}
+        {/* 配置提示区域 */}
+        <Button onClick={handleSave}>保存</Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+#### 2d. CustomMcpRow 增强
+
+每行展示：StatusDot + 名称(ID) + 类型 Badge + 状态 Badge + URL/command + headers + Switch + 编辑/删除按钮：
+
+```tsx
+function CustomMcpRow({ id, config, connector, onEdit, onDelete }) {
+  const status = connector
+    ? connector.enabled ? connector.status : "disabled"
+    : "disconnected";  // 冷启动偏差修复
+  return (
+    <div className="flex items-start gap-3 py-3 border-b last:border-0">
+      <StatusDot status={status} />
+      <div className="flex-1">
+        {/* 名称 + ID + Badge（本地/远程 + 已连接/连接失败）*/}
+        {/* description / url / command / headers */}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {connector && <Switch .../>}
+        <Button onClick={onEdit}><Pencil /></Button>
+        <Button onClick={onDelete}><Trash2 /></Button>
+      </div>
+    </div>
+  );
+}
+```
+
+#### 2e. CustomMcpSection 管理区域
+
+- 空状态展示虚线边框 + 点击添加
+- 列表使用 `rounded-lg border divide-y` 布局
+- 通过 `McpEntryDialog` 弹窗完成添加/编辑
+- 删除直接从 servers 对象移除后保存
+- API 适配：`useMcpConfig` 返回 `{ config: ... }` 格式，`useUpdateMcpConfig` 发送 `{ config: ... }` 格式
 
 ---
 
@@ -288,7 +412,7 @@ class ConnectorInfo:
 | `backend/app/connector/model.py` | 修改 | no_auth_required + source 字段 |
 | `backend/app/api/mcp.py` | 修改 | user-config API 端点 |
 | `backend/app/main.py` | 修改 | MCP 启动逻辑、后台任务 |
-| `frontend/src/components/settings/mcp-tab.tsx` | 新增 | MCP 管理页面 |
+| `frontend/src/components/settings/mcp-tab.tsx` | 新增 | MCP 管理页面（内置 MCP 区域 + Dialog 弹窗 + Badge 视觉 + CustomMcpSection） |
 | `frontend/src/hooks/use-mcp-config.ts` | 新增 | MCP 配置 Hook |
 | `frontend/src/types/connectors.ts` | 修改 | McpServerConfig 类型 |
 | `frontend/src/app/(main)/plugins/content.tsx` | 修改 | 过滤内置/用户配置连接器 |
@@ -299,6 +423,12 @@ class ConnectorInfo:
 ## 十、重新实现检查清单
 
 - [ ] MCP 管理页 Tab（对话框式 CRUD + 启用/禁用开关 + 状态显示）
+- [ ] **内置 MCP 区域**：筛选 `referenced_by.includes("__builtin__")` 的连接器，独立展示（BuiltinMcpRow + Badge + StatusDot + Switch）
+- [ ] **Dialog 弹窗编辑**：使用 `Dialog` 组件，JSON 格式 textarea 编辑，实时校验 + 验证规则
+- [ ] **Badge 视觉元素**：本地/远程标签（Terminal/Globe + Badge）、已连接/连接失败状态徽章（CheckCircle2/XCircle + 彩色 Badge）
+- [ ] **CustomMcpRow 增强**：StatusDot + 名称(ID) + 类型 Badge + 状态 Badge + URL/command + headers + Switch + 编辑/删除
+- [ ] **CustomMcpSection**：空状态虚线边框 + 点击添加、列表 divide-y 布局、通过 McpEntryDialog 弹窗完成添加/编辑
+- [ ] **API 适配**：`useMcpConfig` 返回 `{ config: ... }` 格式，`useUpdateMcpConfig` 发送 `{ config: ... }` 格式
 - [ ] `McpServerConfig` 类型含 `headers` 字段
 - [ ] 后端 `load/save/register/apply_user_mcps` 方法
 - [ ] 配置持久化到 `.openyak/mcp-servers.json`
@@ -306,7 +436,8 @@ class ConnectorInfo:
 - [ ] `GET/PUT /api/mcp/user-config` API 端点
 - [ ] MCP 连接异步化（`asyncio.create_task`，不阻塞 HTTP 就绪）
 - [ ] `sync_tools()` 动态工具注册
-- [ ] 插件标签页过滤 `__builtin__` 和 `user-config` 来源
+- [ ] 插件标签页过滤 `user-config` 来源（不过滤 `builtin`，保留 OAuth 服务集成连接器）
+- [ ] **[偏差修复]** 插件页 ConnectorsTab 仅过滤 `user-config` 来源，保留 `builtin`（Slack/Notion/GitHub 等）
 - [ ] `_build_local_env()` PATH 注入（5 个 Node.js 目录 + os.environ 基底）
 - [ ] `ConnectorInfo.no_auth_required` 字段
 - [ ] `ConnectorInfo.source` 字段（"builtin" | "user-config"）
