@@ -35,7 +35,7 @@ i18n.use(initReactI18next).init({
     },
   },
   fallbackLng: "en",
-  lng: "en",
+  lng: "zh",
   defaultNS: "common",
   ns: ["common", "chat", "settings", "usage", "plugins", "automations"],
   interpolation: {

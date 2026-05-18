@@ -17,7 +17,7 @@ const env = {
   OPENYAK_ALLOW_DEV_SESSION_TOKEN: "true",
   OPENYAK_DEV_SESSION_TOKEN: token,
   NEXT_PUBLIC_OPENYAK_DEV_SESSION_TOKEN: token,
-  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
 };
 
 const cmd = [

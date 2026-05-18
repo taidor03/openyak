@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const isDesktopBuild = process.env.DESKTOP_BUILD === "true";
-const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 const devSessionToken = process.env.NEXT_PUBLIC_OPENYAK_DEV_SESSION_TOKEN;
 
 function backendApiDestination(): string {

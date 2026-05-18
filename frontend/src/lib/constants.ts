@@ -28,7 +28,7 @@ let _backendTokenPromise: Promise<string> | null = null;
 
 /** Direct backend URL for SSE streams (avoids Next.js proxy buffering). */
 const FALLBACK_BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 const WEB_DEV_BACKEND_TOKEN =
   process.env.NEXT_PUBLIC_OPENYAK_DEV_SESSION_TOKEN || "";
 

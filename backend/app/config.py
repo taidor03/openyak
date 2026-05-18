@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # --- Server ---
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8090
     debug: bool = False
     # Dev-only fixed session token. Used by npm run dev:all so the Next.js
     # dev server can authenticate browser-originated /api requests without
