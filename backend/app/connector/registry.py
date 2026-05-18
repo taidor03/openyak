@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -21,6 +22,35 @@ from app.mcp.tool_wrapper import McpToolWrapper
 from app.tool.base import ToolDefinition
 
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# PATH environment injection for local stdio MCP servers
+# ------------------------------------------------------------------
+
+_NODE_EXTRA_PATHS = [
+    "/opt/homebrew/bin",                             # Homebrew on Apple Silicon
+    "/usr/local/bin",                                # Homebrew on Intel / system node
+    os.path.expanduser("~/.volta/bin"),              # Volta
+    os.path.expanduser("~/.nvm/current/bin"),        # nvm (via default-packages symlink)
+    os.path.expanduser("~/.fnm/default/bin"),        # fnm
+]
+
+
+def _build_local_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Build a subprocess env for local MCP servers (stdio/npx/uvx).
+
+    Starts from the current process env so nothing is lost, then prepends any
+    known Node.js binary directories not already in PATH, and finally applies
+    connector-specific overrides.
+    """
+    env = dict(os.environ)
+    current_path = env.get("PATH", "")
+    extra_dirs = [d for d in _NODE_EXTRA_PATHS if os.path.isdir(d) and d not in current_path]
+    if extra_dirs:
+        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + current_path
+    if extra:
+        env.update(extra)
+    return env
 
 
 class ConnectorRegistry:
@@ -193,6 +223,9 @@ class ConnectorRegistry:
                     enabled=cid in self._persisted_state.get("enabled", []),
                     source="custom",
                 )
+
+        # Restore user-config MCPs from .openyak/mcp-servers.json
+        await self._register_user_mcps()
 
         # Inject credentials into local connectors that need them
         self._inject_local_credentials()
@@ -500,3 +533,150 @@ class ConnectorRegistry:
             )
         except OSError as e:
             logger.warning("Cannot persist connector state: %s", e)
+
+    # ------------------------------------------------------------------
+    # User MCP config (hot-reload)
+    # ------------------------------------------------------------------
+
+    def _user_mcp_path(self) -> Path:
+        """Path to user MCP config file."""
+        base = Path(self._project_dir) if self._project_dir else Path.home()
+        return base / ".openyak" / "mcp-servers.json"
+
+    async def load_user_mcps(self) -> dict[str, Any]:
+        """Load user MCP config from .openyak/mcp-servers.json."""
+        path = self._user_mcp_path()
+        if not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("Cannot read user MCP config: %s", e)
+            return {}
+
+    async def _register_user_mcps(self) -> None:
+        """Register user-config MCPs from .openyak/mcp-servers.json on cold start.
+
+        Unlike apply_user_mcps(), this does NOT disconnect/reconnect — it simply
+        adds connectors to the registry so they are included in the McpManager config.
+        """
+        config = await self.load_user_mcps()
+        if not config:
+            return
+
+        for name, server_cfg in config.items():
+            if not isinstance(server_cfg, dict):
+                continue
+            server_type = server_cfg.get("type", "remote")
+            url = server_cfg.get("url", "") if server_type == "remote" else ""
+            local_cfg: dict[str, Any] = {}
+            if server_type == "local":
+                local_cfg = {k: v for k, v in server_cfg.items() if k not in ("type", "name", "enabled")}
+                local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
+
+            self._connectors[name] = ConnectorInfo(
+                id=name,
+                name=server_cfg.get("name", name),
+                url=url,
+                type=server_type,
+                description=server_cfg.get("description", f"{name} (user-config)"),
+                category=server_cfg.get("category", "custom"),
+                enabled=server_cfg.get("enabled", True),
+                source="user-config",
+                no_auth_required=True,
+                local_config=local_cfg,
+            )
+
+        logger.info("Registered %d user-config MCPs on startup", len(config))
+
+    async def save_user_mcps(self, config: dict[str, Any]) -> None:
+        """Save user MCP config to .openyak/mcp-servers.json."""
+        path = self._user_mcp_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            logger.warning("Cannot save user MCP config: %s", e)
+
+    async def apply_user_mcps(self, new_config: dict[str, Any]) -> None:
+        """Hot-reload user MCPs: disconnect old ones, register new ones, reconnect enabled."""
+        # 1. Close and remove old user-config clients
+        old_ids = [cid for cid, c in self._connectors.items() if c.source == "user-config"]
+        if self._mcp_manager:
+            for cid in old_ids:
+                try:
+                    await self._mcp_manager.disconnect(cid)
+                except Exception:
+                    pass
+                self._mcp_manager._config.pop(cid, None)
+                del self._connectors[cid]
+
+        # 2. Save new config
+        await self.save_user_mcps(new_config)
+
+        # 3. Register new user MCP servers from config
+        new_ids = []
+        for name, server_cfg in new_config.items():
+            if not isinstance(server_cfg, dict):
+                continue
+            server_type = server_cfg.get("type", "remote")
+            url = server_cfg.get("url", "") if server_type == "remote" else ""
+            local_cfg = {}
+            if server_type == "local":
+                local_cfg = {k: v for k, v in server_cfg.items() if k not in ("type", "name", "enabled")}
+                # Build proper environment with PATH injection
+                local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
+
+            connector = ConnectorInfo(
+                id=name,
+                name=server_cfg.get("name", name),
+                url=url,
+                type=server_type,
+                description=server_cfg.get("description", f"{name} (user-config)"),
+                category=server_cfg.get("category", "custom"),
+                enabled=server_cfg.get("enabled", True),
+                source="user-config",
+                no_auth_required=True,
+                local_config=local_cfg,
+            )
+            self._connectors[name] = connector
+            new_ids.append(name)
+
+            # Add to McpManager config
+            if self._mcp_manager:
+                if server_type == "local":
+                    self._mcp_manager._config[name] = {
+                        "type": "local",
+                        "enabled": connector.enabled,
+                        "no_auth_required": True,
+                        "command": local_cfg.get("command", []),
+                        "environment": local_cfg.get("environment", {}),
+                    }
+                else:
+                    self._mcp_manager._config[name] = {
+                        "type": "remote",
+                        "url": url,
+                        "enabled": connector.enabled,
+                        "no_auth_required": True,
+                        "headers": server_cfg.get("headers", {}),
+                    }
+
+        # 4. Reconnect enabled items
+        if self._mcp_manager:
+            for cid in new_ids:
+                connector = self._connectors.get(cid)
+                if connector and connector.enabled:
+                    try:
+                        await self._mcp_manager.reconnect(cid)
+                    except Exception as e:
+                        logger.warning("Failed to reconnect user MCP '%s': %s", cid, e)
+
+        # 5. Refresh tool registry
+        self.sync_tools()
+
+        logger.info(
+            "User MCPs applied: %d servers (%d enabled)",
+            len(new_ids),
+            sum(1 for cid in new_ids if self._connectors.get(cid, ConnectorInfo(id="", name="", url="", type="", description="", category="")).enabled),
+        )

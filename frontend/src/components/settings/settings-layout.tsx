@@ -13,6 +13,7 @@ import { ProvidersTab } from "@/components/settings/providers-tab";
 import { UsageSkeleton } from "@/components/settings/usage-tab";
 import { MemoryTab } from "@/components/settings/memory-tab";
 import { PermissionsTab } from "@/components/settings/permissions-tab";
+import { McpTab } from "@/components/settings/mcp-tab";
 import { AutomationsTabContent } from "@/app/(main)/automations/content";
 import { PluginsTabContent } from "@/app/(main)/plugins/content";
 import { RemoteTabContent } from "@/app/(main)/remote/content";
@@ -96,6 +97,7 @@ export default function SettingsPageClient({ initialTab }: SettingsPageClientPro
           {activeTab === "providers" && <ProvidersTab />}
           {activeTab === "permissions" && <PermissionsTab />}
           {activeTab === "automations" && <AutomationsTabContent />}
+          {activeTab === "mcp" && <McpTab />}
           {activeTab === "plugins" && <PluginsTabContent />}
           {activeTab === "remote" && <RemoteTabContent />}
           {activeTab === "usage" && <UsageTab />}

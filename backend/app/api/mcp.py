@@ -1,14 +1,20 @@
-"""MCP server management endpoints (legacy — delegates to ConnectorRegistry).
+"""MCP server management endpoints.
 
-New code should use /api/connectors/ endpoints instead.
+Includes user-config CRUD with hot-reload, and legacy status/reconnect endpoints.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp")
 
@@ -136,3 +142,32 @@ async def mcp_disconnect(name: str, request: Request) -> dict[str, Any]:
         return {"success": False, "error": "MCP not configured"}
     success = await manager.disconnect_auth(name)
     return {"success": success, "servers": manager.status()}
+
+
+# ------------------------------------------------------------------
+# User-config CRUD with hot-reload
+# ------------------------------------------------------------------
+
+
+class McpUserConfigBody(BaseModel):
+    """Body for PUT /api/mcp/user-config."""
+    config: dict[str, Any]
+
+
+@router.get("/user-config")
+async def get_user_config(request: Request) -> dict[str, Any]:
+    """Get user MCP configuration."""
+    registry = _get_registry(request)
+    if not registry:
+        return {"config": {}}
+    return {"config": await registry.load_user_mcps()}
+
+
+@router.put("/user-config")
+async def save_user_config(body: McpUserConfigBody, request: Request) -> dict[str, Any]:
+    """Save user MCP configuration and apply (hot-reload)."""
+    registry = _get_registry(request)
+    if not registry:
+        raise HTTPException(500, "ConnectorRegistry not available")
+    await registry.apply_user_mcps(body.config)
+    return {"success": True, "config": await registry.load_user_mcps()}
