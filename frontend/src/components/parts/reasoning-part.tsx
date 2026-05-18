@@ -208,6 +208,8 @@ function getToolLabel(tool: ToolPart, t: TFunction): string {
       return t("toolAskQuestionShort");
     case "todo":
       return t("toolUpdateProgress");
+    case "skill":
+      return input.name ? `Skill: ${input.name}` : t("toolLoadSkill");
     default:
       return tool.tool;
   }

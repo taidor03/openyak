@@ -144,6 +144,7 @@
   "toolSubtask": "子任务",
   "toolAskQuestionShort": "正在提问",
   "toolUpdateProgress": "更新进度",
+  "toolLoadSkill": "加载技能",
 
   "preview": "预览",
   "details": "详情",
@@ -186,5 +187,6 @@
   "configureSettings": "前往配置",
   "backendStartingService": "正在启动服务",
   "backendServiceStarted": "后台服务启动成功",
-  "localCacheSynced": "本地缓存已同步"
+  "localCacheSynced": "本地缓存已同步",
+  "agentSkills": "Agent 技能"
 }

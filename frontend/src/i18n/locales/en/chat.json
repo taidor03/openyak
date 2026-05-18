@@ -144,6 +144,7 @@
   "toolSubtask": "Subtask",
   "toolAskQuestionShort": "Asking question",
   "toolUpdateProgress": "Update progress",
+  "toolLoadSkill": "Load skill",
 
   "preview": "Preview",
   "details": "Details",
@@ -186,5 +187,6 @@
   "configureSettings": "Configure",
   "backendStartingService": "Starting service",
   "backendServiceStarted": "Backend service started",
-  "localCacheSynced": "Local cache synced"
+  "localCacheSynced": "Local cache synced",
+  "agentSkills": "Agent Skills"
 }

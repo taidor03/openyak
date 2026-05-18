@@ -308,6 +308,10 @@ export const API = {
   TOOLS: "/api/tools",
   SKILLS: {
     LIST: "/api/skills",
+    DETAIL: (name: string) => `/api/skills/${name}` as const,
+    CREATE: "/api/skills/create",
+    UPDATE: (name: string) => `/api/skills/${name}` as const,
+    DELETE: (name: string) => `/api/skills/${name}` as const,
     ENABLE: (name: string) => `/api/skills/${name}/enable` as const,
     DISABLE: (name: string) => `/api/skills/${name}/disable` as const,
     STORE_SEARCH: "/api/skills/store/search",

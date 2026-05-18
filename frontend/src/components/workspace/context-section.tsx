@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Plug, Brain, Pencil, Check, X, Download, RefreshCw } from "lucide-react";
+import { ChevronDown, Plug, Brain, Pencil, Check, X, Download, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useConnectors } from "@/hooks/use-connectors";
 import { useSkills } from "@/hooks/use-plugins";
@@ -20,6 +20,13 @@ const STATUS_DOT: Record<string, string> = {
   connected: "bg-green-500",
   needs_auth: "bg-yellow-500",
   failed: "bg-red-500",
+};
+
+const SKILL_SOURCE_STYLE: Record<string, string> = {
+  project: "text-violet-400",
+  agent: "text-violet-400",
+  bundled: "text-blue-400",
+  plugin: "text-emerald-400",
 };
 
 function ConnectorsBlock() {
@@ -71,20 +78,50 @@ function ConnectorsBlock() {
 }
 
 function SkillsSummary() {
-  const { data: skills, isLoading } = useSkills();
+  const workspacePath = useWorkspaceStore((s) => s.activeWorkspacePath);
+  const { data: skills, isLoading } = useSkills(workspacePath);
 
   if (isLoading) return null;
   if (!skills || skills.length === 0) return null;
 
+  // Group by source
+  const bySource = skills.reduce<Record<string, number>>((acc, s) => {
+    const key = s.source === "agent" ? "project" : s.source; // project + agent both shown as project/agent
+    acc[s.source] = (acc[s.source] || 0) + 1;
+    return acc;
+  }, {});
+
+  const projectAgentCount = (bySource.project || 0) + (bySource.agent || 0);
+  const bundledCount = bySource.bundled || 0;
+  const pluginCount = bySource.plugin || 0;
+
   return (
     <div>
-      <p className="px-4 py-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
-        Skills
-      </p>
-      <div className="px-4 py-1">
-        <span className="text-[13px] text-[var(--text-secondary)]">
-          {skills.length} skills available
+      <div className="flex items-center gap-1.5 px-4 py-1.5">
+        <Sparkles className="h-3.5 w-3.5 text-[var(--text-tertiary)]" />
+        <p className="text-[11px] font-medium text-[var(--text-tertiary)]">
+          Skills
+        </p>
+        <span className="text-[11px] text-[var(--text-quaternary)]">
+          ({skills.length})
         </span>
+      </div>
+      <div className="px-4 py-1 flex items-center gap-3">
+        {projectAgentCount > 0 && (
+          <span className={`text-[12px] ${SKILL_SOURCE_STYLE.project}`}>
+            {projectAgentCount} projects
+          </span>
+        )}
+        {bundledCount > 0 && (
+          <span className={`text-[12px] ${SKILL_SOURCE_STYLE.bundled}`}>
+            {bundledCount} bundled
+          </span>
+        )}
+        {pluginCount > 0 && (
+          <span className={`text-[12px] ${SKILL_SOURCE_STYLE.plugin}`}>
+            {pluginCount} plugins
+          </span>
+        )}
       </div>
     </div>
   );

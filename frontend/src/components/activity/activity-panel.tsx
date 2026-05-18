@@ -18,6 +18,7 @@ import {
   Layers,
   FileDiff,
   Plug,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -54,6 +55,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   question: HelpCircle,
   todo: ListTodo,
   task: Layers,
+  skill: Sparkles,
 };
 
 function getToolTitle(data: ToolPart): string {
@@ -82,6 +84,8 @@ function getToolTitle(data: ToolPart): string {
       return truncate(String(input.url ?? ""), 40);
     case "task":
       return truncate(String(input.description ?? "Subtask"), 30);
+    case "skill":
+      return input.name ? `Skill: ${input.name}` : "Load skill";
     default:
       return data.tool;
   }
