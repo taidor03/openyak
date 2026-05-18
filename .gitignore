@@ -43,6 +43,7 @@ desktop-tauri/package-lock.json
 
 # Resources
 resources/
+openyak_written/
 
 # Cache
 .openyak/

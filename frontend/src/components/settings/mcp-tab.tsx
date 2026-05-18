@@ -1,477 +1,549 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  Loader2,
-  Pencil,
-  Plus,
-  RotateCw,
-  Trash2,
-  Unplug,
-} from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useConnectors, useConnectorToggle } from "@/hooks/use-connectors";
+import { useMcpConfig, useUpdateMcpConfig } from "@/hooks/use-mcp-config";
+import type { McpServerConfig } from "@/types/connectors";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api";
-import { queryKeys } from "@/lib/constants";
+import { Badge } from "@/components/ui/badge";
 import {
-  useConnectors,
-  useConnectorToggle,
-  useConnectorReconnect,
-} from "@/hooks/use-connectors";
-import { useMcpConfig, useUpdateMcpConfig } from "@/hooks/use-mcp-config";
-import type { ConnectorInfo, McpServerConfig } from "@/types/connectors";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  WifiOff,
+  Terminal,
+  Globe,
+  Plus,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
+import type { ConnectorInfo } from "@/types/connectors";
 
-/* ------------------------------------------------------------------ */
-/* Status dot colors                                                   */
-/* ------------------------------------------------------------------ */
+// ---------------------------------------------------------------------------
+// Status dot
+// ---------------------------------------------------------------------------
 
-const STATUS_COLORS: Record<string, string> = {
-  connected: "bg-emerald-500",
+const STATUS_DOT: Record<string, string> = {
+  connected: "bg-green-500",
+  disconnected: "bg-gray-400",
   needs_auth: "bg-amber-500",
   failed: "bg-red-500",
-  disconnected: "bg-[var(--text-tertiary)]",
-  disabled: "bg-[var(--text-tertiary)]",
+  disabled: "bg-gray-300",
 };
 
-/* ------------------------------------------------------------------ */
-/* Main MCP Tab Component                                              */
-/* ------------------------------------------------------------------ */
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span
+      className={cn("inline-block h-2 w-2 rounded-full flex-shrink-0 mt-1", STATUS_DOT[status] ?? STATUS_DOT.disconnected)}
+      title={status}
+    />
+  );
+}
 
-export function McpTab() {
+// ---------------------------------------------------------------------------
+// Built-in MCP row
+// ---------------------------------------------------------------------------
+
+function BuiltinMcpRow({ id, connector }: { id: string; connector: ConnectorInfo }) {
   const { t } = useTranslation("settings");
-  const { data: mcpConfigData, isLoading: configLoading } = useMcpConfig();
-  const { data: connectorsData } = useConnectors();
-  const [showAdd, setShowAdd] = useState(false);
-
-  const userConfig = mcpConfigData?.config ?? {};
-  const connectorsMap = connectorsData?.connectors ?? {};
-
-  const entries = Object.entries(userConfig);
-  const enabledCount = entries.filter(([, cfg]) => cfg.enabled !== false).length;
+  const toggle = useConnectorToggle();
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-[var(--text-tertiary)]">
-        {t("mcpDesc", { defaultValue: "Manage custom MCP server connections. Changes are applied immediately." })}
-      </p>
+    <div className="flex items-start gap-3 py-3 border-b border-[var(--border-primary)] last:border-0">
+      <StatusDot status={connector.enabled ? connector.status : "disabled"} />
 
-      <div className="flex items-center justify-between mb-3">
-        {!configLoading && (
-          <p className="text-ui-2xs text-[var(--text-tertiary)]">
-            {t("mcpCount", { count: enabledCount, defaultValue: `${enabledCount} enabled` })} / {entries.length}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm text-[var(--text-primary)]">{connector.name}</span>
+          {connector.type === "local" ? (
+            <Badge variant="outline" className="text-xs gap-1 py-0">
+              <Terminal className="h-3 w-3" />
+              {t("mcpLocal", { defaultValue: "Local" })}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs gap-1 py-0">
+              <Globe className="h-3 w-3" />
+              {t("mcpRemote", { defaultValue: "Remote" })}
+            </Badge>
+          )}
+          {connector.enabled && connector.status === "connected" && (
+            <Badge className="text-xs py-0 bg-green-500/15 text-green-700 dark:text-green-400 border-0">
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              {connector.tools_count > 0 ? `${connector.tools_count} ${t("mcpTools", { defaultValue: "tools" })}` : t("mcpConnected", { defaultValue: "Connected" })}
+            </Badge>
+          )}
+          {connector.enabled && connector.status === "failed" && (
+            <Badge className="text-xs py-0 bg-red-500/15 text-red-600 dark:text-red-400 border-0">
+              <XCircle className="h-3 w-3 mr-1" />
+              {t("mcpFailed", { defaultValue: "Connection failed" })}
+            </Badge>
+          )}
+        </div>
+        {connector.description && (
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+            {connector.description}
           </p>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-ui-2xs px-2.5"
-          onClick={() => setShowAdd(true)}
-        >
-          <Plus className="h-3 w-3 mr-1" />
-          {t("mcpAdd", { defaultValue: "Add MCP" })}
-        </Button>
+        {connector.type === "local" && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+            {t("mcpRequiresNode", { defaultValue: "Requires Node.js / npx" })}
+          </p>
+        )}
       </div>
 
-      {showAdd && (
-        <McpEditDialog
-          mode="add"
-          onClose={() => setShowAdd(false)}
-        />
-      )}
-
-      {configLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="h-14 rounded-lg bg-[var(--surface-tertiary)] animate-pulse"
-            />
-          ))}
-        </div>
-      ) : entries.length === 0 ? (
-        <p className="text-xs text-[var(--text-tertiary)] text-center py-8">
-          {t("mcpEmpty", { defaultValue: "No custom MCP servers configured" })}
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {entries.map(([id, cfg]) => (
-            <CustomMcpRow
-              key={id}
-              id={id}
-              config={cfg}
-              connector={connectorsMap[id]}
-            />
-          ))}
-        </div>
-      )}
+      <Switch
+        checked={connector.enabled}
+        disabled={toggle.isPending}
+        onCheckedChange={(checked) => toggle.mutate({ id, enable: checked })}
+      />
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Custom MCP Row (with cold-start deviation fix)                      */
-/* ------------------------------------------------------------------ */
+// ---------------------------------------------------------------------------
+// Add / Edit dialog (form-based, adapted for current API)
+// ---------------------------------------------------------------------------
 
-function CustomMcpRow({
-  id,
-  config,
-  connector,
-}: {
+const ENTRY_PLACEHOLDER = `{
+  "my-mcp": {
+    "type": "remote",
+    "url": "https://example.com/mcp",
+    "headers": { "Authorization": "Bearer your-token" },
+    "name": "My MCP",
+    "description": "描述信息",
+    "category": "search"
+  }
+}`;
+
+interface McpEntryDialogProps {
+  open: boolean;
+  onClose: () => void;
+  /** existing entry being edited; undefined = add mode */
+  initial?: { id: string; config: McpServerConfig };
+  allServers: Record<string, McpServerConfig>;
+  onSave: (servers: Record<string, McpServerConfig>) => void;
+  isSaving: boolean;
+}
+
+function McpEntryDialog({
+  open,
+  onClose,
+  initial,
+  allServers,
+  onSave,
+  isSaving,
+}: McpEntryDialogProps) {
+  const { t } = useTranslation("settings");
+  const isEdit = !!initial;
+
+  const [draft, setDraft] = useState("");
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  // Reset draft when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    if (initial) {
+      setDraft(JSON.stringify({ [initial.id]: initial.config }, null, 2));
+    } else {
+      setDraft("");
+    }
+    setParseError(null);
+  }, [open, initial]);
+
+  const handleChange = useCallback((value: string) => {
+    setDraft(value);
+    try {
+      JSON.parse(value);
+      setParseError(null);
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : t("mcpJsonError", { defaultValue: "JSON 格式错误" }));
+    }
+  }, [t]);
+
+  const handleSave = useCallback(() => {
+    let parsed: Record<string, McpServerConfig>;
+    try {
+      parsed = JSON.parse(draft) as Record<string, McpServerConfig>;
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : t("mcpJsonError", { defaultValue: "JSON 格式错误" }));
+      return;
+    }
+
+    const keys = Object.keys(parsed);
+    if (keys.length === 0) {
+      setParseError(t("mcpEmptyEntry", { defaultValue: "请至少输入一条服务器配置" }));
+      return;
+    }
+
+    // Validate each entry has required fields
+    for (const [key, cfg] of Object.entries(parsed)) {
+      if (!cfg || typeof cfg !== "object") {
+        setParseError(t("mcpInvalidEntry", { key, defaultValue: `"${key}" 的值必须是对象` }));
+        return;
+      }
+      if (cfg.type === "local" && (!cfg.command || cfg.command.length === 0)) {
+        setParseError(t("mcpLocalNoCommand", { key, defaultValue: `本地类型 "${key}" 必须填写 command` }));
+        return;
+      }
+      if (cfg.type !== "local" && !cfg.url) {
+        setParseError(t("mcpRemoteNoUrl", { key, defaultValue: `远程类型 "${key}" 必须填写 url` }));
+        return;
+      }
+    }
+
+    // Merge: remove old entry (if editing), add new entries
+    const next = { ...allServers };
+    if (isEdit && initial) {
+      delete next[initial.id];
+    }
+    Object.assign(next, parsed);
+    onSave(next);
+  }, [draft, allServers, isEdit, initial, onSave, t]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? t("mcpEditTitle", { defaultValue: "编辑 MCP 服务器" }) : t("mcpAddTitle", { defaultValue: "添加 MCP 服务器" })}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <p className="text-xs text-[var(--text-secondary)]">
+            {t("mcpJsonHint", { defaultValue: "输入 JSON 格式的服务器配置，key 为服务器 ID，value 为配置项。" })}
+          </p>
+
+          <textarea
+            value={draft}
+            onChange={(e) => handleChange(e.target.value)}
+            placeholder={ENTRY_PLACEHOLDER}
+            spellCheck={false}
+            rows={14}
+            className={cn(
+              "w-full rounded-lg border px-3 py-2.5 font-mono text-xs leading-relaxed",
+              "bg-[var(--surface-primary)] text-[var(--text-primary)]",
+              "resize-y focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]",
+              parseError
+                ? "border-red-500 focus:ring-red-500"
+                : "border-[var(--border-primary)]",
+            )}
+          />
+
+          {parseError && (
+            <p className="text-xs text-red-500 flex items-center gap-1">
+              <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              {parseError}
+            </p>
+          )}
+
+          <div className="rounded-lg bg-[var(--surface-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)] space-y-1">
+            <p>• <code className="bg-[var(--surface-tertiary)] px-1 rounded">type: &quot;remote&quot;</code> — 填写 <code className="bg-[var(--surface-tertiary)] px-1 rounded">url</code>，可选 <code className="bg-[var(--surface-tertiary)] px-1 rounded">headers</code>（如 Bearer Token）</p>
+            <p>• <code className="bg-[var(--surface-tertiary)] px-1 rounded">type: &quot;local&quot;</code> — 填写 <code className="bg-[var(--surface-tertiary)] px-1 rounded">command</code>，可选 <code className="bg-[var(--surface-tertiary)] px-1 rounded">args</code> / <code className="bg-[var(--surface-tertiary)] px-1 rounded">env</code></p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={isSaving}>
+            {t("mcpCancel", { defaultValue: "取消" })}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!!parseError || isSaving || !draft.trim()}
+            className="gap-1.5"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {isEdit ? t("mcpSaveBtn", { defaultValue: "保存修改" }) : t("mcpAddBtn", { defaultValue: "添加" })}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom MCP list row
+// ---------------------------------------------------------------------------
+
+interface CustomMcpRowProps {
   id: string;
   config: McpServerConfig;
-  connector?: ConnectorInfo;
-}) {
+  connector: ConnectorInfo | undefined;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function CustomMcpRow({ id, config, connector, onEdit, onDelete }: CustomMcpRowProps) {
   const { t } = useTranslation("settings");
   const toggle = useConnectorToggle();
-  const reconnect = useConnectorReconnect();
-  const updateConfig = useUpdateMcpConfig();
-  const [editing, setEditing] = useState(false);
-
-  const qc = useQueryClient();
-
-  // Deviation fix: when connector is undefined (cold start), infer enabled from config
-  // connector may be undefined when backend hasn't registered user-config MCPs yet
-  const isEnabled = connector ? connector.enabled : (config.enabled !== false);
+  const isLocal = config.type === "local";
   const status = connector
     ? connector.enabled
       ? connector.status
       : "disabled"
-    : "disconnected"; // NOT "disabled" — avoid grey dot misleading user
-
-  const handleDelete = async () => {
-    // Load current config, remove this entry, save
-    const current = await api.get<{ config: Record<string, unknown> }>("/api/mcp/user-config");
-    const newConfig = { ...current.config };
-    delete newConfig[id];
-    await updateConfig.mutateAsync(newConfig);
-    toast.success(t("mcpDeleted", { defaultValue: "MCP server removed" }));
-  };
-
-  if (editing) {
-    return (
-      <McpEditDialog
-        mode="edit"
-        id={id}
-        initialConfig={config}
-        onClose={() => setEditing(false)}
-      />
-    );
-  }
+    : "disconnected";
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-default)] p-2.5">
-      {/* Status dot */}
-      <span
-        className={`h-2 w-2 rounded-full shrink-0 ${
-          STATUS_COLORS[status] ?? STATUS_COLORS.disconnected
-        }`}
-      />
+    <div className="flex items-start gap-3 py-3 border-b border-[var(--border-primary)] last:border-0">
+      <StatusDot status={status} />
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-[var(--text-primary)]">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-sm text-[var(--text-primary)]">
             {config.name || id}
           </span>
-          <span className="text-ui-3xs px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400">
-            {config.type}
-          </span>
-          {status === "connected" && connector && connector.tools_count > 0 && (
-            <span className="text-ui-3xs text-[var(--text-tertiary)]">
-              {connector.tools_count} {t("mcpTools", { defaultValue: "tools" })}
-            </span>
+          <span className="text-xs text-[var(--text-tertiary)] font-mono">({id})</span>
+
+          {isLocal ? (
+            <Badge variant="outline" className="text-xs gap-1 py-0">
+              <Terminal className="h-3 w-3" />{t("mcpLocal", { defaultValue: "本地" })}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs gap-1 py-0">
+              <Globe className="h-3 w-3" />{t("mcpRemote", { defaultValue: "远程" })}
+            </Badge>
+          )}
+
+          {connector?.enabled && connector.status === "connected" && (
+            <Badge className="text-xs py-0 bg-green-500/15 text-green-700 dark:text-green-400 border-0">
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              {connector.tools_count > 0 ? `${connector.tools_count} ${t("mcpTools", { defaultValue: "工具" })}` : t("mcpConnected", { defaultValue: "已连接" })}
+            </Badge>
+          )}
+          {connector?.enabled && connector.status === "failed" && (
+            <Badge className="text-xs py-0 bg-red-500/15 text-red-600 dark:text-red-400 border-0">
+              <XCircle className="h-3 w-3 mr-1" />{t("mcpFailed", { defaultValue: "连接失败" })}
+            </Badge>
           )}
         </div>
-        <p className="text-ui-3xs text-[var(--text-tertiary)] truncate mt-0.5">
-          {config.type === "remote"
-            ? config.url || ""
-            : [config.command, ...(config.args || [])].join(" ")}
-        </p>
+
+        {config.description && (
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+            {config.description}
+          </p>
+        )}
+        {!isLocal && config.url && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono truncate">
+            {config.url}
+          </p>
+        )}
+        {isLocal && config.command && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono truncate">
+            {[config.command, ...(config.args || [])].join(" ")}
+          </p>
+        )}
+        {config.headers && Object.keys(config.headers).length > 0 && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+            Headers: {Object.keys(config.headers).join(", ")}
+          </p>
+        )}
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-1 shrink-0">
-        {status === "failed" && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-ui-3xs px-2"
-            onClick={() => reconnect.mutate(id)}
-            disabled={reconnect.isPending}
-          >
-            {reconnect.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <RotateCw className="h-3 w-3" />
-            )}
-            <span className="ml-1">{t("mcpRetry", { defaultValue: "Retry" })}</span>
-          </Button>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {connector && (
+          <Switch
+            checked={connector.enabled}
+            disabled={toggle.isPending}
+            onCheckedChange={(checked) => toggle.mutate({ id, enable: checked })}
+          />
         )}
-
         <Button
+          size="icon"
           variant="ghost"
-          size="sm"
-          className="h-6 text-ui-3xs px-1.5 text-[var(--text-tertiary)]"
-          onClick={() => setEditing(true)}
-          title={t("mcpEdit", { defaultValue: "Edit" })}
+          className="h-7 w-7 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          onClick={onEdit}
+          title={t("mcpEdit", { defaultValue: "编辑" })}
         >
-          <Pencil className="h-3 w-3" />
+          <Pencil className="h-3.5 w-3.5" />
         </Button>
-
         <Button
+          size="icon"
           variant="ghost"
-          size="sm"
-          className="h-6 text-ui-3xs px-1.5 text-[var(--text-tertiary)]"
-          onClick={handleDelete}
-          disabled={updateConfig.isPending}
-          title={t("mcpDelete", { defaultValue: "Delete" })}
+          className="h-7 w-7 text-[var(--text-secondary)] hover:text-red-500"
+          onClick={onDelete}
+          title={t("mcpDelete", { defaultValue: "删除" })}
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
-
-        {/* Enable/disable toggle — always rendered, not dependent on connector existence */}
-        <Switch
-          checked={isEnabled}
-          disabled={toggle.isPending}
-          onCheckedChange={async (checked) => {
-            await toggle.mutateAsync({ id, enable: checked });
-            if (checked) {
-              // Refresh status after a short delay
-              await new Promise((r) => setTimeout(r, 1000));
-              await qc.invalidateQueries({ queryKey: queryKeys.connectors });
-            }
-          }}
-          className="shrink-0"
-        />
       </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Add / Edit Dialog                                                   */
-/* ------------------------------------------------------------------ */
+// ---------------------------------------------------------------------------
+// Custom MCPs manager section
+// ---------------------------------------------------------------------------
 
-interface McpEditDialogProps {
-  mode: "add" | "edit";
-  id?: string;
-  initialConfig?: McpServerConfig;
-  onClose: () => void;
-}
-
-function McpEditDialog({ mode, id, initialConfig, onClose }: McpEditDialogProps) {
+function CustomMcpSection({
+  connectorsData,
+}: {
+  connectorsData: Record<string, ConnectorInfo> | undefined;
+}) {
   const { t } = useTranslation("settings");
-  const updateConfig = useUpdateMcpConfig();
-  const qc = useQueryClient();
+  const { data: mcpConfigData, isLoading } = useMcpConfig();
+  const save = useUpdateMcpConfig();
 
-  const [name, setName] = useState(initialConfig?.name ?? "");
-  const [serverType, setServerType] = useState<"remote" | "local">(
-    initialConfig?.type ?? "remote",
-  );
-  const [url, setUrl] = useState(initialConfig?.url ?? "");
-  const [command, setCommand] = useState(initialConfig?.command ?? "");
-  const [args, setArgs] = useState(initialConfig?.args?.join(" ") ?? "");
-  const [headersText, setHeadersText] = useState(
-    initialConfig?.headers
-      ? Object.entries(initialConfig.headers)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join("\n")
-      : "",
-  );
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<{ id: string; config: McpServerConfig } | undefined>();
 
-  const isPending = updateConfig.isPending;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Parse headers
-    const headers: Record<string, string> = {};
-    if (headersText.trim()) {
-      for (const line of headersText.trim().split("\n")) {
-        const colonIdx = line.indexOf(":");
-        if (colonIdx > 0) {
-          const key = line.slice(0, colonIdx).trim();
-          const val = line.slice(colonIdx + 1).trim();
-          if (key) headers[key] = val;
-        }
-      }
+  const servers = useMemo(() => {
+    const raw = mcpConfigData?.config ?? {};
+    // Cast each value to McpServerConfig
+    const result: Record<string, McpServerConfig> = {};
+    for (const [key, val] of Object.entries(raw)) {
+      result[key] = val as McpServerConfig;
     }
+    return result;
+  }, [mcpConfigData]);
 
-    const serverId = mode === "add"
-      ? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-      : id!;
-
-    if (!serverId) return;
-
-    // Build server config
-    const serverCfg: Record<string, unknown> = {
-      name,
-      type: serverType,
-      enabled: mode === "edit" ? (initialConfig?.enabled ?? true) : true,
-    };
-
-    if (serverType === "remote") {
-      serverCfg.url = url;
-      if (Object.keys(headers).length > 0) {
-        serverCfg.headers = headers;
+  const handleSave = useCallback(
+    (next: Record<string, McpServerConfig>) => {
+      // Convert McpServerConfig to Record<string, unknown> for the API
+      const apiConfig: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(next)) {
+        apiConfig[key] = val;
       }
-    } else {
-      serverCfg.command = command;
-      if (args.trim()) {
-        serverCfg.args = args.trim().split(/\s+/);
+      save.mutate(apiConfig, {
+        onSuccess: () => setDialogOpen(false),
+      });
+    },
+    [save],
+  );
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      const next = { ...servers };
+      delete next[id];
+      const apiConfig: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(next)) {
+        apiConfig[key] = val;
       }
-    }
+      save.mutate(apiConfig);
+    },
+    [servers, save],
+  );
 
-    // Load current config and merge
-    const current = await api.get<{ config: Record<string, unknown> }>("/api/mcp/user-config");
-    const newConfig = { ...current.config, [serverId]: serverCfg };
-    await updateConfig.mutateAsync(newConfig);
+  const openAdd = () => {
+    setEditTarget(undefined);
+    setDialogOpen(true);
+  };
 
-    onClose();
+  const openEdit = (id: string, config: McpServerConfig) => {
+    setEditTarget({ id, config });
+    setDialogOpen(true);
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="mb-4 rounded-lg border border-[var(--border-default)] bg-[var(--surface-secondary)] p-3 space-y-2.5"
-    >
-      <h4 className="text-xs font-semibold text-[var(--text-primary)]">
-        {mode === "add"
-          ? t("mcpAddTitle", { defaultValue: "Add MCP Server" })
-          : t("mcpEditTitle", { defaultValue: "Edit MCP Server" })}
-      </h4>
-
-      {/* Name */}
-      <div>
-        <label className="text-ui-3xs text-[var(--text-tertiary)] mb-1 block">
-          {t("mcpName", { defaultValue: "Name" })}
-        </label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t("mcpNamePlaceholder", { defaultValue: "My MCP Server" })}
-          className="w-full h-7 rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
-          required
-          disabled={mode === "edit"}
-        />
-      </div>
-
-      {/* Type toggle */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setServerType("remote")}
-          className={`px-3 py-1.5 text-ui-2xs rounded-md border transition-colors ${
-            serverType === "remote"
-              ? "border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5"
-              : "border-[var(--border-default)] text-[var(--text-tertiary)]"
-          }`}
-        >
-          {t("mcpTypeRemote", { defaultValue: "Remote (URL)" })}
-        </button>
-        <button
-          type="button"
-          onClick={() => setServerType("local")}
-          className={`px-3 py-1.5 text-ui-2xs rounded-md border transition-colors ${
-            serverType === "local"
-              ? "border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-primary)]/5"
-              : "border-[var(--border-default)] text-[var(--text-tertiary)]"
-          }`}
-        >
-          {t("mcpTypeLocal", { defaultValue: "Local (stdio)" })}
-        </button>
-      </div>
-
-      {/* Remote: URL */}
-      {serverType === "remote" && (
+    <section>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <label className="text-ui-3xs text-[var(--text-tertiary)] mb-1 block">
-            {t("mcpUrl", { defaultValue: "Server URL" })}
-          </label>
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://mcp.example.com/mcp"
-            className="w-full h-7 rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
-            required
-          />
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            {t("mcpCustomTitle", { defaultValue: "自定义 MCP 服务器" })}
+          </h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">
+            {t("mcpCustomDesc", { defaultValue: "添加任意 MCP 服务器，保存后立即生效，无需重启。" })}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={openAdd}>
+          <Plus className="h-3.5 w-3.5" />
+          {t("mcpAdd", { defaultValue: "添加 MCP" })}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] py-4">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t("mcpLoading", { defaultValue: "加载中..." })}
+        </div>
+      ) : Object.keys(servers).length === 0 ? (
+        <div
+          className="rounded-lg border border-dashed border-[var(--border-primary)] px-4 py-8 text-center cursor-pointer hover:border-[var(--brand-primary)] hover:bg-[var(--surface-secondary)] transition-colors"
+          onClick={openAdd}
+        >
+          <Plus className="h-6 w-6 mx-auto mb-2 text-[var(--text-tertiary)]" />
+          <p className="text-sm text-[var(--text-secondary)]">
+            {t("mcpEmptyCustom", { defaultValue: "暂无自定义 MCP 服务器" })}
+          </p>
+          <p className="text-xs text-[var(--text-tertiary)] mt-1">
+            {t("mcpEmptyCustomHint", { defaultValue: "点击添加第一个" })}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-[var(--border-primary)] px-4">
+          {Object.entries(servers).map(([id, config]) => (
+            <CustomMcpRow
+              key={id}
+              id={id}
+              config={config}
+              connector={connectorsData?.[id]}
+              onEdit={() => openEdit(id, config)}
+              onDelete={() => handleDelete(id)}
+            />
+          ))}
         </div>
       )}
 
-      {/* Local: command + args */}
-      {serverType === "local" && (
-        <>
-          <div>
-            <label className="text-ui-3xs text-[var(--text-tertiary)] mb-1 block">
-              {t("mcpCommand", { defaultValue: "Command" })}
-            </label>
-            <input
-              type="text"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="npx"
-              className="w-full h-7 rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
-              required
-            />
-          </div>
-          <div>
-            <label className="text-ui-3xs text-[var(--text-tertiary)] mb-1 block">
-              {t("mcpArgs", { defaultValue: "Arguments (space-separated)" })}
-            </label>
-            <input
-              type="text"
-              value={args}
-              onChange={(e) => setArgs(e.target.value)}
-              placeholder="-y @modelcontextprotocol/server-memory"
-              className="w-full h-7 rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
-            />
-          </div>
-        </>
-      )}
+      <McpEntryDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        initial={editTarget}
+        allServers={servers}
+        onSave={handleSave}
+        isSaving={save.isPending}
+      />
+    </section>
+  );
+}
 
-      {/* Headers (remote only) */}
-      {serverType === "remote" && (
-        <div>
-          <label className="text-ui-3xs text-[var(--text-tertiary)] mb-1 block">
-            {t("mcpHeaders", { defaultValue: "Headers (key: value per line, optional)" })}
-          </label>
-          <textarea
-            value={headersText}
-            onChange={(e) => setHeadersText(e.target.value)}
-            placeholder={"Authorization: Bearer token\nX-Custom: value"}
-            rows={3}
-            className="w-full rounded-md border border-[var(--border-default)] bg-transparent px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)] resize-y"
-          />
+// ---------------------------------------------------------------------------
+// Main tab
+// ---------------------------------------------------------------------------
+
+export function McpTab() {
+  const { t } = useTranslation("settings");
+  const { data } = useConnectors();
+
+  const builtinMcps = Object.entries(data?.connectors ?? {}).filter(
+    ([, c]) => c.referenced_by?.includes("__builtin__"),
+  );
+
+  return (
+    <div className="space-y-8">
+      {/* Built-in MCPs */}
+      <section>
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            {t("mcpBuiltinTitle", { defaultValue: "内置搜索 MCP" })}
+          </h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">
+            {t("mcpBuiltinDesc", { defaultValue: "零配置、无需 API Key 的内置搜索工具。本地工具需要系统已安装 Node.js。" })}
+          </p>
         </div>
-      )}
 
-      <div className="flex justify-end gap-2 pt-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-ui-2xs"
-          onClick={onClose}
-          type="button"
-        >
-          {t("mcpCancel", { defaultValue: "Cancel" })}
-        </Button>
-        <Button
-          size="sm"
-          className="h-7 text-ui-2xs"
-          type="submit"
-          disabled={isPending || !name || (serverType === "remote" ? !url : !command)}
-        >
-          {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-          {mode === "add"
-            ? t("mcpAddBtn", { defaultValue: "Add" })
-            : t("mcpSaveBtn", { defaultValue: "Save" })}
-        </Button>
-      </div>
-    </form>
+        {builtinMcps.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] py-4">
+            <WifiOff className="h-4 w-4" />
+            {t("mcpBuiltinEmpty", { defaultValue: "暂无内置 MCP（后端启动中...）" })}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-[var(--border-primary)] px-4 divide-y divide-[var(--border-primary)]">
+            {builtinMcps.map(([id, connector]) => (
+              <BuiltinMcpRow key={id} id={id} connector={connector} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Custom MCPs */}
+      <CustomMcpSection connectorsData={data?.connectors} />
+    </div>
   );
 }

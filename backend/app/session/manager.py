@@ -64,17 +64,27 @@ async def list_sessions(
     offset: int = 0,
     project_id: str | None = None,
     include_archived: bool = False,
+    archived_only: bool = False,
 ) -> list[Session]:
     """List sessions with optional project filter. Pinned sessions first."""
     stmt = select(Session).where(Session.parent_id.is_(None))
     if project_id:
         stmt = stmt.where(Session.project_id == project_id)
-    if not include_archived:
+    if archived_only:
+        stmt = stmt.where(Session.time_archived.isnot(None))
+        stmt = stmt.order_by(Session.time_archived.desc())
+    elif not include_archived:
         stmt = stmt.where(Session.time_archived.is_(None))
-    stmt = stmt.order_by(
-        Session.is_pinned.desc(),
-        Session.time_created.desc(),
-    ).offset(offset).limit(limit)
+        stmt = stmt.order_by(
+            Session.is_pinned.desc(),
+            Session.time_created.desc(),
+        )
+    else:
+        stmt = stmt.order_by(
+            Session.is_pinned.desc(),
+            Session.time_created.desc(),
+        )
+    stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 

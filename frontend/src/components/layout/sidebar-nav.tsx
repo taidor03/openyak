@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   {
-    href: "/content-workbench",
+    href: "/content_workbench",
     labelKey: "contentWorkbench",
     icon: LayoutDashboard,
   },

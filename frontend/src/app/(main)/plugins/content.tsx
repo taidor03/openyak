@@ -135,9 +135,9 @@ function ConnectorsTab({ search }: { search: string }) {
   const [showAdd, setShowAdd] = useState(false);
 
   const connectors = data?.connectors ?? {};
-  // Filter out builtin and user-config connectors (shown in MCP tab instead)
+  // Filter out user-config connectors (shown in MCP tab instead)
   const entries = Object.entries(connectors).filter(
-    ([, c]) => c.source !== "builtin" && c.source !== "user-config",
+    ([, c]) => c.source !== "user-config",
   );
   const connectedCount = entries.filter(([, c]) => c.status === "connected").length;
 
