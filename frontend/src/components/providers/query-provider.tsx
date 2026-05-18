@@ -1,7 +1,13 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { useState, type ReactNode } from "react";
+import {
+  localStoragePersister,
+  PERSIST_MAX_AGE_MS,
+  dehydrateOptions,
+} from "@/lib/query-persister";
 
 export function QueryProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -18,6 +24,23 @@ export function QueryProvider({ children }: { children: ReactNode }) {
         },
       }),
   );
+
+  // If persister is available (non-SSR, non-private-browsing), use PersistQueryClientProvider
+  // for automatic cache persistence. Otherwise fall back to plain QueryClientProvider.
+  if (localStoragePersister) {
+    return (
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: localStoragePersister,
+          maxAge: PERSIST_MAX_AGE_MS,
+          dehydrateOptions,
+        }}
+      >
+        {children}
+      </PersistQueryClientProvider>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

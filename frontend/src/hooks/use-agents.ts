@@ -10,5 +10,6 @@ export function useAgents() {
     queryKey: queryKeys.agents,
     queryFn: () => api.get<AgentInfo[]>(API.AGENTS),
     staleTime: 10 * 60 * 1000, // 10 minutes
+    meta: { persist: true },
   });
 }

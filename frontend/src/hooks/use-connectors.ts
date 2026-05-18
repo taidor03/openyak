@@ -27,6 +27,7 @@ export function useConnectors() {
     queryFn: () => api.get<ConnectorsResponse>(API.CONNECTORS.LIST),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    meta: { persist: true },
   });
 }
 
