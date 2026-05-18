@@ -1,14 +1,10 @@
 # 06 - 知识中心 Wiki 服务
 
-> **定制编号**: 2f64ef0, 2f95df7, 70362fc  
-> **涉及提交**: `2f64ef0`, `2f95df7`, `70362fc`, `38edce7`(部分)  
 > **涉及范围**: 后端 Wiki 服务 + 前端知识中心页面 + AI Wiki 工具
 
 ---
 
 ## 一、功能概述
-
-知识中心（Knowledge Hub）是 Xflow Desktop 的核心定制功能之一，提供：
 
 1. **Wiki 后端服务**：完整的 Wiki 页面 CRUD、搜索、合并、清理
 2. **AI Wiki 工具**：AI 助手可在对话中直接操作 Wiki 知识
@@ -47,91 +43,53 @@ class WikiService:
     async def write_page(self, title: str, content: str, **kwargs) -> dict
 
     # 合并保存（保留 AI 修改 + 用户手动修改）
-    async def merge_page(self, page_id: str, content: str) -> dict
+    async def merge_page(self, page_id: str, new_content: str) -> dict
+
+    # 搜索页面
+    async def search(self, query: str, limit: int = 10) -> list[dict]
+
+    # 列出所有页面
+    async def list_pages(self, category: str | None = None) -> list[dict]
 
     # 删除页面
     async def delete_page(self, page_id: str) -> bool
 
-    # 搜索页面
-    async def search(self, query: str, category: str | None = None) -> list[dict]
+    # Wiki 状态（页面数、最后更新时间）
+    async def status(self) -> dict
 
-    # 列出页面
-    async def list_pages(self, category: str | None = None) -> list[dict]
-
-    # 获取 Wiki 状态
-    async def get_status(self) -> dict
+    # 重复检测与合并
+    async def duplicates(self) -> list[dict]
+    async def deduplicate(self, page_ids: list[str]) -> dict
 ```
 
 ### 2.3 Wiki 根路径解析
 
-Wiki 根目录的解析优先级：
+Wiki 根路径按优先级解析：
 
-1. **项目级 Wiki**：`<workspace>/.wiki/`
-2. **全局 Wiki**：`~/.xflow/wiki/`
+1. 项目级 `.wiki/`（当前项目目录下）
+2. 全局 `~/.xflow/wiki/`（用户主目录下）
 
-### 2.4 Wiki 分类体系
+项目级 Wiki 优先，使不同项目可以拥有独立的 Wiki 知识库。
 
-```python
-_WIKI_CATEGORIES = [
-    "entities",    # 实体分类
-    "concepts",    # 概念定义
-    "sources",     # 来源参考
-    "synthesis",   # 综合总结
-    "comparison",  # 对比分析
-    "queries",     # 常用查询
-]
+### 2.4 6 大分类体系
+
+```
+.wiki/
+├── entities/     # 实体分类页面
+├── concepts/     # 概念说明页面
+├── sources/      # 来源引用页面
+├── synthesis/    # 综合总结页面
+├── comparison/   # 对比分析页面
+└── queries/      # 常见问题页面
 ```
 
-每个分类对应 Wiki 根目录下的子目录。
+### 2.5 写入保护机制
 
-### 2.5 页面格式
+`write_page` 默认 `force=false`：
 
-Wiki 页面使用 Markdown 格式，含 YAML frontmatter：
-
-```markdown
----
-title: 页面标题
-category: entities
-created: 2026-05-17T12:00:00
-updated: 2026-05-17T12:00:00
----
-
-页面内容...
-```
-
-### 2.6 文件名安全转换（filename.py）
-
-```python
-def query_to_filename(query: str) -> str:
-    """将查询字符串转换为安全的文件名"""
-    # 移除/替换不安全字符
-    # 限制长度
-    # 添加时间戳避免冲突
-```
-
-### 2.7 搜索引擎（search.py）
-
-Lexical search 实现：
-
-- **标题匹配**：精确 + 模糊匹配，权重更高
-- **内容片段**：正文中关键词匹配，返回上下文片段
-- **分类过滤**：可选按 category 过滤
-
-### 2.8 清理模块（cleanup.py）
-
-- **section merge**：合并同一页面的多个编辑 section
-- **frontmatter 解析**：读取/写入 YAML 头部
-- **deleted keys 清理**：移除 frontmatter 中标记为 deleted 的字段
-
-### 2.9 Wikilink 解析（resolver.py）
-
-```python
-def resolve_page_path(wiki_root: Path, page_id: str) -> Path | None:
-    """解析 wikilink 到文件路径"""
-
-def unwrap_wikilink(text: str) -> str:
-    """去除 [[wikilink]] 包装"""
-```
+- 如果页面已存在，返回 `exists=true` 和现有内容
+- AI 必须选择 `merge` 操作（只提供变更部分）或 `write + force=true`（覆盖全部）
+- 这防止 AI 意外覆盖用户手动修改的内容
 
 ---
 
@@ -139,70 +97,107 @@ def unwrap_wikilink(text: str) -> str:
 
 ### 3.1 工具注册
 
-**文件**：`backend/app/wiki/tool.py`
+**文件**：`backend/app/wiki/tool.py`（520 行）
+
+工具 id: `"wiki"`
+
+`is_concurrency_safe = False`（Wiki 操作有副作用，不可并发）
+
+### 3.2 工具参数 Schema
 
 ```python
-class WikiTool:
-    """
-    暴露 read, write, merge, search, list, delete, status 等操作
-    通过单个 `wiki` 工具注册到 ToolRegistry
-    """
+"parameters": {
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["read", "write", "merge", "search", "list", "delete", "status", "ingest"],
+            "description": "Action to perform"
+        },
+        "query": {
+            "type": "string",
+            "description": "Search query (for search action)"
+        },
+        "title": {
+            "type": "string",
+            "description": "Page title (for write/merge action, or as search key for read)"
+        },
+        "content": {
+            "type": "string",
+            "description": "Page content in Markdown (for write/merge action)"
+        },
+        "page_id": {
+            "type": "string",
+            "description": "Page ID/slug (for read/delete action)"
+        },
+        "category": {
+            "type": "string",
+            "description": "Page category (entities/concepts/sources/synthesis/comparison/queries)"
+        },
+        "force": {
+            "type": "boolean",
+            "description": "For write action: if true, overwrite existing page"
+        },
+        "source_name": {
+            "type": "string",
+            "description": "Name/title for the source document (for ingest action)"
+        },
+        "source_content": {
+            "type": "string",
+            "description": "Source document content (for ingest action)"
+        },
+    }
+}
 ```
 
-### 3.2 工具 Actions
+### 3.3 8 个 Action 说明
 
-| Action | 说明 | 参数 |
-|--------|------|------|
-| status | 获取 Wiki 状态（页数、分类、初始化状态） | — |
-| search | 按关键词搜索 Wiki 页面 | `query`, `category?` |
-| list | 列出 Wiki 页面 | `category?` |
-| read | 读取指定页面 | `page_id` |
-| write | 创建或覆盖页面 | `title`, `content`, `category?`, `force?` |
-| merge | 合并保存页面 | `page_id`, `content` |
-| delete | 删除页面 | `page_id` |
+| Action | 功能 | 关键行为 |
+|--------|------|---------|
+| `read` | 读取页面 | 通过 page_id 或 title 查找 |
+| `write` | 写入/创建页面 | force=false 时如已存在返回 exists=true |
+| `merge` | 合并保存 | 只提供变更部分，保留用户手动修改 |
+| `search` | 搜索页面 | 标题匹配 + 内容片段 |
+| `list` | 列出页面 | 可按 category 过滤 |
+| `delete` | 删除页面 | 按 page_id 删除 |
+| `status` | Wiki 状态 | 页面数、最后更新时间 |
+| `ingest` | 导入来源 | 将外部文档内容导入为 Wiki 页面 |
 
-### 3.3 写入保护机制
+### 3.4 AI 使用指引（嵌入 tool description）
 
-- **force=false（默认）**：如果页面已存在，返回现有内容，让 AI 决定如何处理
-- **force=true**：直接覆盖
-
-### 3.4 System Prompt 集成
-
-**`backend/app/session/system_prompt.py`**：
-
-```python
-# 注入 wiki_root 说明到 system prompt
-wiki_section = f"""
-You have access to a Wiki Knowledge Center at {wiki_root}.
-Use the `wiki` tool to store, retrieve, and search knowledge.
-Always search before writing to avoid duplicates.
-"""
 ```
-
-**`backend/app/session/prompt.py`**：
-
-Wiki 工具描述随 system prompt 一起发送给 AI。
+- When updating an existing page, prefer the **merge** action to preserve \
+  user edits that may have happened since the last AI update.
+- If the write action returns `exists=true`, you MUST either:
+  1. merge action: supply only the new/changed sections
+  2. write action with force=true: supply the FULL merged content
+```
 
 ---
 
 ## 四、Wiki REST API
 
-### 4.1 API 路由
+**文件**：`backend/app/api/wiki.py`
 
-**新增文件**：`backend/app/api/wiki.py`
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/api/wiki/status` | GET | Wiki 状态信息 |
+| `/api/wiki/initialize` | POST | 初始化 Wiki 目录结构 |
+| `/api/wiki/pages` | GET | 列出所有页面 |
+| `/api/wiki/pages/{page_id:path}` | GET | 读取页面 |
+| `/api/wiki/pages` | POST | 写入/创建页面 |
+| `/api/wiki/merge` | POST | 合并保存 |
+| `/api/wiki/ingest` | POST | 导入外部文档 |
+| `/api/wiki/lint` | GET | 检查 Wiki 问题 |
+| `/api/wiki/pages/{page_id:path}` | DELETE | 删除页面 |
+| `/api/wiki/search` | POST | 搜索页面 |
+| `/api/wiki/duplicates` | GET | 检测重复页面 |
+| `/api/wiki/deduplicate` | POST | 合并重复页面 |
 
-```
-GET  /api/wiki/config      # 获取 Wiki 配置（wiki_root 等）
-PUT  /api/wiki/config      # 更新 Wiki 配置
-GET  /api/wiki/status      # 获取 Wiki 状态
-GET  /api/wiki/resolve     # 解析页面路径
-```
+**路由注册**：`backend/app/api/router.py` 注册 wiki 路由
 
-### 4.2 路由注册
-
-**`backend/app/api/router.py`**：新增 wiki 路由
-
-**`backend/app/main.py`**：wiki 模块初始化
+**初始化**：`backend/app/main.py` 中 wiki 初始化
 
 ---
 
@@ -210,34 +205,28 @@ GET  /api/wiki/resolve     # 解析页面路径
 
 ### 5.1 路由
 
-**新增文件**：`frontend/src/app/(main)/knowledge/page.tsx`
+**新增文件**：
 
-**新增文件**：`frontend/src/app/(main)/knowledge/content.tsx`（1058 行主内容组件）
+- `frontend/src/app/(main)/knowledge/page.tsx` — 路由页面
+- `frontend/src/app/(main)/knowledge/content.tsx` — 主内容组件（1058 行）
 
-### 5.2 功能
+### 5.2 功能描述
 
-- **全局 Wiki / 项目 Wiki 切换**：Tab 切换不同 Wiki 根目录
-- **分类侧边栏导航**：按 6 大分类浏览
-- **Wiki 页面 CRUD**：新建、编辑、预览、删除
-- **合并保存**：AI 修改与用户手动修改的智能合并
-- **覆盖保存**：直接覆盖现有内容
-- **搜索功能**：防抖 300ms，标题匹配高亮与内容片段
-- **Markdown 预览**：react-markdown + remark-gfm
-- **分类图标**：每个分类对应不同图标
-- **i18n 支持**：中英文 47 条翻译/语言
+- 全局/项目 Wiki 切换
+- 6 大分类导航
+- 页面列表、详情查看、编辑
+- Markdown 预览
+- 合并保存 / 覆盖保存双模式
+- 搜索功能
+- 重复检测与合并
 
 ### 5.3 i18n
 
-**`frontend/src/i18n/locales/{en,zh}/common.json`**：
+- `frontend/src/i18n/locales/{en,zh}/common.json`：47 条知识中心翻译/语言
 
-新增 47 条知识中心相关翻译键，涵盖：
-- 分类名称（entities/concepts/sources/synthesis/comparison/queries）
-- CRUD 操作文案（新建/编辑/删除/保存/合并保存/覆盖保存）
-- 搜索相关文案
-- 确认提示文案
-- 状态提示文案
+### 5.4 侧边栏入口
 
----
+`frontend/src/components/layout/sidebar-nav.tsx` 中 BookOpen 图标导航到 `/knowledge`
 
 ---
 
@@ -247,12 +236,12 @@ GET  /api/wiki/resolve     # 解析页面路径
 |---------|---------|------|
 | `backend/app/wiki/__init__.py` | 新增 | 模块初始化 |
 | `backend/app/wiki/service.py` | 新增 | WikiService（878 行） |
-| `backend/app/wiki/tool.py` | 新增 | WikiTool（520 行） |
+| `backend/app/wiki/tool.py` | 新增 | WikiTool（520 行，8 个 actions） |
 | `backend/app/wiki/resolver.py` | 新增 | 页面路径解析 |
 | `backend/app/wiki/search.py` | 新增 | 搜索引擎 |
 | `backend/app/wiki/cleanup.py` | 新增 | 清理模块 |
 | `backend/app/wiki/filename.py` | 新增 | 文件名转换 |
-| `backend/app/api/wiki.py` | 新增 | REST API |
+| `backend/app/api/wiki.py` | 新增 | REST API（14 个端点） |
 | `backend/app/api/router.py` | 修改 | 注册 wiki 路由 |
 | `backend/app/main.py` | 修改 | wiki 初始化 |
 | `backend/app/session/prompt.py` | 修改 | Wiki 工具注入 |
@@ -261,25 +250,21 @@ GET  /api/wiki/resolve     # 解析页面路径
 | `frontend/src/app/(main)/knowledge/content.tsx` | 新增 | 主内容组件（1058 行） |
 | `frontend/src/components/layout/sidebar-nav.tsx` | 修改 | 知识中心入口 |
 | `frontend/src/i18n/locales/{en,zh}/common.json` | 修改 | 47 条翻译/语言 |
-| `.wiki/` | 新增 | Wiki 初始文件 |
+| `.wiki/` | 新增 | Wiki 初始文件（6 大分类） |
 
 ---
 
 ## 七、重新实现检查清单
 
 - [ ] Wiki 模块完整结构（service/tool/resolver/search/cleanup/filename）
-- [ ] WikiService 全文操作（read/write/merge/delete/search/list/status）
-- [ ] WikiTool AI 内置工具注册（7 个 actions）
+- [ ] WikiService 全文操作（read/write/merge/delete/search/list/status/duplicates/deduplicate/ingest）
+- [ ] WikiTool AI 内置工具注册（8 个 actions: read/write/merge/search/list/delete/status/ingest）
 - [ ] 写入保护机制（force=false 默认返回现有内容）
 - [ ] Wiki 根路径解析（项目级 `.wiki/` → 全局 `~/.xflow/wiki/`）
 - [ ] 6 大分类体系（entities/concepts/sources/synthesis/comparison/queries）
-- [ ] Markdown + YAML frontmatter 页面格式
-- [ ] Lexical search（标题匹配 + 内容片段 + 分类过滤）
-- [ ] Section merge + frontmatter 解析 + deleted keys 清理
-- [ ] Wikilink 解析与去包装
 - [ ] 文件名安全转换
 - [ ] System prompt 注入 wiki_root 说明
-- [ ] Wiki REST API（config/status/resolve）
+- [ ] Wiki REST API（14 个端点）
 - [ ] 前端知识中心页面（全局/项目 Wiki 切换 + 分类导航 + CRUD + 搜索 + Markdown 预览）
 - [ ] 合并保存 / 覆盖保存双模式
 - [ ] i18n 47 条知识中心翻译/语言
