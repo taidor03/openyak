@@ -77,6 +77,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_backend_url,
             commands::get_backend_token,
+            commands::is_backend_ready,
             commands::get_pending_navigation,
             commands::window_minimize,
             commands::window_maximize,
@@ -226,6 +227,8 @@ pub fn run() {
                     if let Err(e) = state.set_dev_data_dir(dev_data_dir).await {
                         error!("Dev mode: failed to load backend session token: {e}");
                     }
+                    // Notify frontend that backend is ready (dev mode assumes ready)
+                    let _ = app_handle.emit("backend-ready", ());
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.center();
                         let _ = window.show();
@@ -238,6 +241,8 @@ pub fn run() {
                     match state.start(&app_handle).await {
                         Ok(url) => {
                             info!("Backend started at {url}");
+                            // Notify frontend that backend is ready
+                            let _ = app_handle.emit("backend-ready", ());
                             if let Some(window) = app_handle.get_webview_window("main") {
                                 let _ = window.center();
                                 let _ = window.show();

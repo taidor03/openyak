@@ -183,5 +183,8 @@
   "loadingModel": "Loading model into memory...",
   "setupProvider": "Choose a model source to start",
   "setupProviderDesc": "Use Rapid-MLX or Ollama locally, connect a local endpoint, or add your own provider key.",
-  "configureSettings": "Configure"
+  "configureSettings": "Configure",
+  "backendStartingService": "Starting service",
+  "backendServiceStarted": "Backend service started",
+  "localCacheSynced": "Local cache synced"
 }

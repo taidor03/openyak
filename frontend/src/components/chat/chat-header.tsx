@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Share2, Loader2, List, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { HeaderModelDropdown } from "@/components/selectors/header-model-dropdown";
 import { ContextIndicator } from "@/components/chat/context-indicator";
+import { BackendReadyIndicator } from "@/components/chat/backend-ready-indicator";
 import { SessionStats } from "@/components/chat/session-stats";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
@@ -229,6 +230,9 @@ export function ChatHeader({ sessionId }: ChatHeaderProps) {
 
         {/* Context usage indicator — desktop only */}
         {!remote && sessionId && <ContextIndicator sessionId={sessionId} />}
+
+        {/* Backend startup status indicator — desktop only */}
+        <BackendReadyIndicator />
       </header>
     </TooltipProvider>
   );

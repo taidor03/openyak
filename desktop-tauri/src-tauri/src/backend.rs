@@ -74,6 +74,8 @@ struct BackendInner {
     /// spawn (prod) or via set_dev_data_dir (dev) so token refresh after
     /// an auto-restart uses the same path.
     data_dir: Option<PathBuf>,
+    /// Whether the backend has passed its health check and is ready.
+    backend_ready: bool,
 }
 
 impl BackendState {
@@ -89,8 +91,15 @@ impl BackendState {
                 last_crash_time: 0,
                 session_token: None,
                 data_dir: None,
+                backend_ready: false,
             })),
         }
+    }
+
+    /// Returns whether the backend has passed its health check.
+    pub async fn is_ready(&self) -> bool {
+        let inner = self.inner.lock().await;
+        inner.backend_ready
     }
 
     /// Returns the backend URL (http://127.0.0.1:{port}).
@@ -103,6 +112,7 @@ impl BackendState {
     pub async fn set_dev_port(&self, port: u16) {
         let mut inner = self.inner.lock().await;
         inner.port = port;
+        inner.backend_ready = true; // Dev mode: assume backend is ready
     }
 
     /// Set the backend data directory in dev mode and load its session
@@ -147,6 +157,7 @@ impl BackendState {
 
         inner.port = port;
         inner.intentional_stop = false;
+        inner.backend_ready = false;
 
         // Determine binary path and data directory
         let is_dev = cfg!(debug_assertions);
@@ -343,6 +354,7 @@ impl BackendState {
             inner.crash_count = 0;
             inner.session_token = Some(token);
             inner.data_dir = Some(token_data_dir);
+            inner.backend_ready = true;
         }
 
         // Start watchdog

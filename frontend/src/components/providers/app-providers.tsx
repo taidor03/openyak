@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "./theme-provider";
 import { QueryProvider } from "./query-provider";
+import { BackendReadyProvider } from "./backend-ready-provider";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Toaster } from "sonner";
 import { getBackendUrl, IS_DESKTOP } from "@/lib/constants";
@@ -69,7 +70,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <MotionConfig reducedMotion="user">
       <ThemeProvider>
         <QueryProvider>
-          <LanguageSync onReady={handleLanguageReady} />
+          <BackendReadyProvider>
+            <LanguageSync onReady={handleLanguageReady} />
           <AppearanceInjector />
           <ErrorBoundary>{children}</ErrorBoundary>
           <Toaster
@@ -84,6 +86,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               },
             }}
           />
+          </BackendReadyProvider>
         </QueryProvider>
       </ThemeProvider>
     </MotionConfig>

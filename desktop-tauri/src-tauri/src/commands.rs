@@ -8,7 +8,19 @@ use crate::{backend::BackendState, tray, PendingNavigationState};
 /// Get the backend URL (http://127.0.0.1:{port}).
 #[tauri::command]
 pub async fn get_backend_url(state: tauri::State<'_, BackendState>) -> Result<String, String> {
-    Ok(state.url().await)
+    let url = state.url().await;
+    // Port 0 means the backend hasn't started yet — don't let the
+    // frontend cache a dead URL that the /livez poll can't use.
+    if url.ends_with(":0") {
+        return Err("Backend not yet ready".to_string());
+    }
+    Ok(url)
+}
+
+/// Check if the backend has passed its health check.
+#[tauri::command]
+pub async fn is_backend_ready(state: tauri::State<'_, BackendState>) -> Result<bool, String> {
+    Ok(state.is_ready().await)
 }
 
 /// Get the backend's per-run session bearer token. The token is read
