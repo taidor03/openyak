@@ -14,7 +14,7 @@
 2. **Xflow API 配置与客户端**（XFLOW-002/003）：连接外部 Xflow 后端的配置管理与 API 客户端封装
 3. **Xflow 后端工具**（XFLOW-004）：将 Xflow 业务能力注册为 AI 可调用的内置工具
 
-> **提示**：Provider 与模型本地缓存（XFLOW-012）及 model_ids 支持（XFLOW-007）已独立至 [09-Provider与模型管理.md](./09-Provider与模型管理.md)。
+> **提示**：Provider 与模型本地缓存（XFLOW-012）及 model_ids 支持（XFLOW-007）已独立至 [08-Provider与模型管理.md](./08-Provider与模型管理.md)。
 
 ---
 
@@ -349,9 +349,8 @@ export interface XflowConfig {
 - [ ] `sidebar-nav.tsx` 完整重写（内容工作台 LayoutDashboard + 知识中心 BookOpen）
 - [ ] `.cursor/skills` 搜索路径注册（`skill/registry.py` 的 `_EXTERNAL_SKILL_DIRS` 新增 `.cursor`）
 - [ ] contentWorkbench i18n 命名空间（中英 49 条/语言）
-- [ ] i18n 默认语言设为 zh
-- [ ] 默认端口改为 8090
 - [ ] `.cursor/rules/` 5 个 MDC 规则文件
 - [ ] `.cursor/skills/` 3 个 SKILL.md 技能文件
 
-> **Provider/model_ids/缓存相关**检查清单已移至 [09-Provider与模型管理.md](./09-Provider与模型管理.md)。
+> **Provider/model_ids/缓存相关**检查清单已移至 [08-Provider与模型管理.md](./08-Provider与模型管理.md)。
+> **默认端口/默认语言**检查清单已移至 [07-构建配置与插件精简.md](./07-构建配置与插件精简.md)。

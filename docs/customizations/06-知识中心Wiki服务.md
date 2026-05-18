@@ -2,7 +2,7 @@
 
 > **定制编号**: 2f64ef0, 2f95df7, 70362fc  
 > **涉及提交**: `2f64ef0`, `2f95df7`, `70362fc`, `38edce7`(部分)  
-> **涉及范围**: 后端 Wiki 服务 + 前端知识中心页面 + AI Wiki 工具 + 消息轮询重构
+> **涉及范围**: 后端 Wiki 服务 + 前端知识中心页面 + AI Wiki 工具
 
 ---
 
@@ -13,7 +13,6 @@
 1. **Wiki 后端服务**：完整的 Wiki 页面 CRUD、搜索、合并、清理
 2. **AI Wiki 工具**：AI 助手可在对话中直接操作 Wiki 知识
 3. **前端知识中心页面**：可视化 Wiki 管理 UI
-4. **消息轮询策略重构**：配合知识中心的实时性需求
 
 ---
 
@@ -240,51 +239,9 @@ GET  /api/wiki/resolve     # 解析页面路径
 
 ---
 
-## 六、消息轮询策略重构（2f64ef0）
-
-### 6.1 重构动机
-
-原 `useMessages` 使用 `useInfiniteQuery` 内置 `refetch`，存在以下问题：
-- 每次轮询重新获取所有页面，开销大
-- 历史页数据不变也被刷新
-- 翻页 offset 计算在 `-1 pageParams` 时漂移
-
-### 6.2 新方案
-
-**手动轮询 + 智能合并**：
-
-```typescript
-// useMessages 重构
-export function useMessages(sessionId: string) {
-  // 1. useInfiniteQuery 管理分页
-  // 2. 手动 setInterval 轮询最新页（offset=-1）
-  // 3. merge 进缓存，保留历史页
-  // 4. fetchPreviousPage 改用 oldestOffset 追踪
-}
-```
-
-### 6.3 SSE 配合
-
-**`frontend/src/hooks/use-sse.ts`**：
-
-- DONE 和消息事件均改用 `refreshLatestMessages` 替代 `invalidateQueries`
-- 仅刷新最新页，不破坏历史页缓存
-
-### 6.4 message-list 修复
-
-**`frontend/src/components/messages/message-list.tsx`**：
-
-修复 `hasActiveStream` 条件导致重复显示 streaming fallback 的问题。
-
 ---
 
-## 七、Wiki 迁移（38edce7）
-
-将「OpenYak MCP 自定义配置」从全局 Wiki 迁移到项目 Wiki，新建 `.wiki/entities/` 存放实体分类页面。
-
----
-
-## 八、涉及文件清单
+## 六、涉及文件清单
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
@@ -302,17 +259,13 @@ export function useMessages(sessionId: string) {
 | `backend/app/session/system_prompt.py` | 修改 | wiki_root 说明 |
 | `frontend/src/app/(main)/knowledge/page.tsx` | 新增 | 路由页面 |
 | `frontend/src/app/(main)/knowledge/content.tsx` | 新增 | 主内容组件（1058 行） |
-| `frontend/src/lib/message-cache.ts` | 新增 | 消息缓存层 |
-| `frontend/src/hooks/use-messages.ts` | 修改 | 手动轮询 + 智能合并 |
-| `frontend/src/hooks/use-sse.ts` | 修改 | refreshLatestMessages |
-| `frontend/src/components/messages/message-list.tsx` | 修改 | hasActiveStream 修复 |
 | `frontend/src/components/layout/sidebar-nav.tsx` | 修改 | 知识中心入口 |
 | `frontend/src/i18n/locales/{en,zh}/common.json` | 修改 | 47 条翻译/语言 |
 | `.wiki/` | 新增 | Wiki 初始文件 |
 
 ---
 
-## 九、重新实现检查清单
+## 七、重新实现检查清单
 
 - [ ] Wiki 模块完整结构（service/tool/resolver/search/cleanup/filename）
 - [ ] WikiService 全文操作（read/write/merge/delete/search/list/status）
@@ -329,7 +282,5 @@ export function useMessages(sessionId: string) {
 - [ ] Wiki REST API（config/status/resolve）
 - [ ] 前端知识中心页面（全局/项目 Wiki 切换 + 分类导航 + CRUD + 搜索 + Markdown 预览）
 - [ ] 合并保存 / 覆盖保存双模式
-- [ ] 消息轮询重构（手动轮询 + 智能合并 + oldestOffset）
-- [ ] SSE `refreshLatestMessages` 替代 `invalidateQueries`
 - [ ] i18n 47 条知识中心翻译/语言
 - [ ] 侧边栏知识中心入口（BookOpen 图标）
