@@ -86,7 +86,6 @@ function SkillsSummary() {
 
   // Group by source
   const bySource = skills.reduce<Record<string, number>>((acc, s) => {
-    const key = s.source === "agent" ? "project" : s.source; // project + agent both shown as project/agent
     acc[s.source] = (acc[s.source] || 0) + 1;
     return acc;
   }, {});
