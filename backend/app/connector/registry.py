@@ -100,7 +100,9 @@ class ConnectorRegistry:
                 connector_id = raw_key
 
             url = config.get("url", "")
-            server_type = config.get("type", "remote")
+            raw_type = config.get("type", "remote")
+            # Normalise: "http" / "sse" / "streamable-http" → "remote"
+            server_type = "local" if raw_type == "local" else "remote"
 
             # Skip entries with no URL for remote servers
             if server_type == "remote" and not url:
@@ -240,11 +242,16 @@ class ConnectorRegistry:
                     **connector.local_config,
                 }
             else:
-                mcp_config[cid] = {
+                remote_cfg: dict[str, Any] = {
                     "type": "remote",
                     "url": connector.url,
                     "enabled": connector.enabled,
                 }
+                if connector.no_auth_required:
+                    remote_cfg["no_auth_required"] = True
+                if connector.headers:
+                    remote_cfg["headers"] = connector.headers
+                mcp_config[cid] = remote_cfg
 
         self._mcp_manager = McpManager(mcp_config, project_dir=self._project_dir)
         await self._mcp_manager.startup()
@@ -544,13 +551,24 @@ class ConnectorRegistry:
         return base / ".openyak" / "mcp-servers.json"
 
     async def load_user_mcps(self) -> dict[str, Any]:
-        """Load user MCP config from .openyak/mcp-servers.json."""
+        """Load user MCP config from .openyak/mcp-servers.json.
+
+        Supports two formats:
+          - Flat:      ``{"server-id": {...}, ...}``
+          - Wrapped:   ``{"mcpServers": {"server-id": {...}, ...}}``
+            (Claude Desktop / Cursor compatible)
+        """
         path = self._user_mcp_path()
         if not path.is_file():
             return {}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
+            if not isinstance(data, dict):
+                return {}
+            # Claude Desktop / Cursor format: {"mcpServers": {...}}
+            if "mcpServers" in data and isinstance(data["mcpServers"], dict):
+                return data["mcpServers"]
+            return data
         except (OSError, json.JSONDecodeError) as e:
             logger.warning("Cannot read user MCP config: %s", e)
             return {}
@@ -573,6 +591,9 @@ class ConnectorRegistry:
             local_cfg: dict[str, Any] = {}
             if server_type == "local":
                 local_cfg = {k: v for k, v in server_cfg.items() if k not in ("type", "name", "enabled")}
+                # Normalise "env" (Claude Desktop format) → "environment"
+                if "env" in local_cfg and "environment" not in local_cfg:
+                    local_cfg["environment"] = local_cfg.pop("env")
                 local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
 
             self._connectors[name] = ConnectorInfo(
@@ -585,17 +606,23 @@ class ConnectorRegistry:
                 enabled=server_cfg.get("enabled", True),
                 source="user-config",
                 no_auth_required=True,
+                headers=server_cfg.get("headers", {}) if server_type == "remote" else {},
                 local_config=local_cfg,
             )
 
         logger.info("Registered %d user-config MCPs on startup", len(config))
 
     async def save_user_mcps(self, config: dict[str, Any]) -> None:
-        """Save user MCP config to .openyak/mcp-servers.json."""
+        """Save user MCP config to .openyak/mcp-servers.json.
+
+        Always writes in the ``{"mcpServers": {...}}`` wrapped format so the
+        file is compatible with Claude Desktop / Cursor.
+        """
         path = self._user_mcp_path()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+            wrapped = {"mcpServers": config}
+            path.write_text(json.dumps(wrapped, indent=2, ensure_ascii=False), encoding="utf-8")
         except OSError as e:
             logger.warning("Cannot save user MCP config: %s", e)
 
@@ -612,7 +639,7 @@ class ConnectorRegistry:
                 self._mcp_manager._config.pop(cid, None)
                 del self._connectors[cid]
 
-        # 2. Save new config
+        # 2. Save new config (wrapped in mcpServers for Claude Desktop compat)
         await self.save_user_mcps(new_config)
 
         # 3. Register new user MCP servers from config
@@ -625,6 +652,9 @@ class ConnectorRegistry:
             local_cfg = {}
             if server_type == "local":
                 local_cfg = {k: v for k, v in server_cfg.items() if k not in ("type", "name", "enabled")}
+                # Normalise "env" (Claude Desktop format) → "environment"
+                if "env" in local_cfg and "environment" not in local_cfg:
+                    local_cfg["environment"] = local_cfg.pop("env")
                 # Build proper environment with PATH injection
                 local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
 
@@ -638,6 +668,7 @@ class ConnectorRegistry:
                 enabled=server_cfg.get("enabled", True),
                 source="user-config",
                 no_auth_required=True,
+                headers=server_cfg.get("headers", {}) if server_type == "remote" else {},
                 local_config=local_cfg,
             )
             self._connectors[name] = connector

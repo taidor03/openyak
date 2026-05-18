@@ -24,6 +24,7 @@ class ConnectorInfo:
     enabled: bool = False
     source: str = "builtin"  # "builtin" | "custom" | "user-config"
     no_auth_required: bool = False  # Skip needs_auth status for user-config connectors
+    headers: dict[str, str] = field(default_factory=dict)  # HTTP headers (e.g. Authorization)
     local_config: dict[str, Any] = field(default_factory=dict)
     referenced_by: list[str] = field(default_factory=list)
 
@@ -39,5 +40,6 @@ class ConnectorInfo:
             "enabled": self.enabled,
             "source": self.source,
             "no_auth_required": self.no_auth_required,
+            "headers": self.headers,
             "referenced_by": self.referenced_by,
         }

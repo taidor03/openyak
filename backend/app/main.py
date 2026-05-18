@@ -365,7 +365,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Start connector connections (MCP servers)
     # HTTP service becomes ready immediately; MCP connects in background
-    connector_registry = ConnectorRegistry(project_dir=settings.project_dir)
+    # NOTE: Do NOT re-create ConnectorRegistry here — the instance created
+    # above already has connectors registered from plugin .mcp.json files.
+    # Re-creating would lose all plugin-registered connectors.
     app.state.connector_registry = connector_registry
     set_connector_registry(connector_registry)
     # Backward compat: expose mcp_manager for any code that still uses it

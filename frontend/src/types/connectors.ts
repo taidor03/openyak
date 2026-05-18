@@ -14,6 +14,7 @@ export interface ConnectorInfo {
   tools_count: number;
   source: "builtin" | "custom" | "user-config";
   no_auth_required?: boolean;
+  headers?: Record<string, string>;
   referenced_by: string[];
 }
 
@@ -23,17 +24,18 @@ export interface ConnectorsResponse {
 
 /** MCP server configuration for user-config (mcp-servers.json) */
 export interface McpServerConfig {
-  id: string;
-  name: string;
+  id?: string;
+  name?: string;
   type: "remote" | "local";
   url?: string;           // remote type
-  command?: string;       // local stdio type
-  args?: string[];        // local stdio arguments
-  enabled: boolean;
+  command?: string | string[];  // local stdio type (string[] for Claude Desktop compat)
+  args?: string[];        // local stdio arguments (when command is a string)
+  enabled?: boolean;
   headers?: Record<string, string>;
   description?: string;
   category?: string;
-  environment?: Record<string, string>;
+  env?: Record<string, string>;        // Claude Desktop format
+  environment?: Record<string, string>; // OpenYak internal format
 }
 
 /** Response from GET /api/mcp/user-config */

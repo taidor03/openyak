@@ -270,7 +270,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         tabIndex={-1}
         className={`h-full flex flex-col outline-none vibrancy-opaque overflow-hidden${
           marginLeft > 0
-            ? " rounded-tl-xl rounded-bl-xl border-l border-t border-b border-[var(--border-subtle)]"
+            ? " border-l border-t border-b border-[var(--border-subtle)]"
             : ""
         }`}
         style={{ paddingTop: titleBarPadding }}

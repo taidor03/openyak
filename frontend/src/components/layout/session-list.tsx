@@ -18,7 +18,7 @@ import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { ProjectsToolbar } from "./projects-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { Check, ChevronRight, Copy, FolderClosed, FolderOpen, Loader2, MessageSquare, SearchX, SquarePen } from "lucide-react";
+import { Archive, Check, ChevronRight, Copy, FolderClosed, FolderOpen, Loader2, MessageSquare, SearchX, SquarePen } from "lucide-react";
 import { writeSessionsCache } from "@/lib/session-cache";
 import { getChatRoute } from "@/lib/routes";
 import { cn, groupSessionsByDate, groupSessionsByWorkspace } from "@/lib/utils";
@@ -554,6 +554,13 @@ export function SessionList() {
         onKeyDown={handleListKeyDown}
         className="flex-1 overflow-y-auto overscroll-contain outline-none pt-2 scrollbar-auto"
       >
+        {/* Archived conversations banner */}
+        {showArchived && (
+          <div className="flex items-center gap-2 mx-3 mb-1 px-3 py-1.5 rounded-lg bg-[var(--surface-tertiary)] border border-[var(--border-primary)]">
+            <Archive className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
+            <span className="text-ui-2xs font-medium text-[var(--text-tertiary)]">{t('archivedConversations')}</span>
+          </div>
+        )}
         <div
           className="relative w-full"
           style={{ height: virtualizer.getTotalSize() }}

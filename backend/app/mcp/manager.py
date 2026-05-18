@@ -67,11 +67,16 @@ class McpManager:
                 await client.connect()
 
                 # If connection failed and it's a remote server without a token,
-                # mark as needs_auth instead of failed
+                # mark as needs_auth instead of failed — BUT only if the server
+                # actually requires OAuth (no_auth_required is not set).
+                # Servers that use header-based auth (e.g. API keys) or are
+                # marked no_auth_required should stay "failed" so the user
+                # sees the real error, not a misleading "connect" button.
                 if (
                     client.status == "failed"
                     and client.server_type != "local"
                     and not client._oauth_token
+                    and not config.get("no_auth_required", False)
                 ):
                     client.status = "needs_auth"
                     client.error = None
@@ -145,10 +150,13 @@ class McpManager:
         await client.connect()
 
         # If remote server failed without a token → mark needs_auth
+        # (only if the server actually requires OAuth)
+        config = self._config.get(name, {})
         if (
             client.status == "failed"
             and client.server_type != "local"
             and not client._oauth_token
+            and not (isinstance(config, dict) and config.get("no_auth_required", False))
         ):
             client.status = "needs_auth"
             client.error = None

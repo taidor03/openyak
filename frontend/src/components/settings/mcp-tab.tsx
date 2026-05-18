@@ -337,7 +337,9 @@ function CustomMcpRow({ id, config, connector, onEdit, onDelete }: CustomMcpRowP
         )}
         {isLocal && config.command && (
           <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono truncate">
-            {[config.command, ...(config.args || [])].join(" ")}
+            {Array.isArray(config.command)
+              ? config.command.join(" ")
+              : [config.command, ...(config.args || [])].join(" ")}
           </p>
         )}
         {config.headers && Object.keys(config.headers).length > 0 && (
@@ -521,17 +523,14 @@ export function McpTab() {
       <section>
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-            {t("mcpBuiltinTitle", { defaultValue: "内置搜索 MCP" })}
+            {t("mcpBuiltinTitle", { defaultValue: "内置MCP" })}
           </h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">
-            {t("mcpBuiltinDesc", { defaultValue: "零配置、无需 API Key 的内置搜索工具。本地工具需要系统已安装 Node.js。" })}
-          </p>
         </div>
 
         {builtinMcps.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)] py-4">
             <WifiOff className="h-4 w-4" />
-            {t("mcpBuiltinEmpty", { defaultValue: "暂无内置 MCP（后端启动中...）" })}
+            {t("mcpBuiltinEmpty", { defaultValue: "暂无内置 MCP" })}
           </div>
         ) : (
           <div className="rounded-lg border border-[var(--border-primary)] px-4 divide-y divide-[var(--border-primary)]">

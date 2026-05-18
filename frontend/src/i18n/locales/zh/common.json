@@ -20,6 +20,7 @@
   "pin": "置顶",
   "unpin": "取消置顶",
   "archiveChat": "归档对话",
+  "archivedConversations": "已归档对话",
   "conversationArchived": "对话已归档",
   "archiveFailed": "归档对话失败",
   "conversationRestored": "对话已恢复",

@@ -1,13 +1,5 @@
 {
   "mcpServers": {
-    "snowflake": {
-      "type": "http",
-      "url": ""
-    },
-    "databricks": {
-      "type": "http",
-      "url": ""
-    },
     "bigquery": {
       "type": "http",
       "url": "https://bigquery.googleapis.com/mcp"
@@ -15,11 +7,6 @@
     "slack": {
       "type": "http",
       "url": "https://mcp.slack.com/mcp"
-    },
-    "ms365": {
-      "type": "local",
-      "command": ["npx", "-y", "@softeria/ms-365-mcp-server"],
-      "enabled": false
     },
     "google-workspace": {
       "type": "local",

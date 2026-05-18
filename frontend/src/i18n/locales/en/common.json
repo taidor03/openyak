@@ -21,6 +21,7 @@
   "pin": "Pin",
   "unpin": "Unpin",
   "archiveChat": "Archive chat",
+  "archivedConversations": "Archived conversations",
   "conversationArchived": "Conversation archived",
   "archiveFailed": "Failed to archive conversation",
   "conversationRestored": "Conversation restored",

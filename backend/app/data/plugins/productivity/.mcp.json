@@ -8,30 +8,9 @@
       "type": "http",
       "url": "https://mcp.notion.com/mcp"
     },
-    "asana": {
+    "bigquery": {
       "type": "http",
-      "url": "https://mcp.asana.com/v2/mcp"
-    },
-    "linear": {
-      "type": "http",
-      "url": "https://mcp.linear.app/mcp"
-    },
-    "atlassian": {
-      "type": "http",
-      "url": "https://mcp.atlassian.com/v1/mcp"
-    },
-    "ms365": {
-      "type": "local",
-      "command": ["npx", "-y", "@softeria/ms-365-mcp-server"],
-      "enabled": false
-    },
-    "monday": {
-      "type": "http",
-      "url": "https://mcp.monday.com/mcp"
-    },
-    "clickup": {
-      "type": "http",
-      "url": "https://mcp.clickup.com/mcp"
+      "url": "https://bigquery.googleapis.com/mcp"
     },
     "google-workspace": {
       "type": "local",

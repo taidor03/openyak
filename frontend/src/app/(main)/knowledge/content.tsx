@@ -745,183 +745,192 @@ export function KnowledgeCenterContent() {
         {showEditor ? (
           <>
             {/* Editor toolbar */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-primary)] bg-[var(--surface-tertiary)] shrink-0">
-              <div className="flex items-center gap-3">
-                <h2 className="text-xs font-semibold">
-                  {isEditingExisting ? t("editWikiPage", "Edit Page") : t("newWikiPage")}
-                </h2>
-                {/* Editor target selector — inline dropdown */}
-                <div ref={editorSelectorRef} className="relative">
-                  <button
-                    onClick={() => setEditorSelectorOpen(!editorSelectorOpen)}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md transition-colors",
-                      "bg-[var(--surface-secondary)] border border-[var(--border-primary)]",
-                      "hover:bg-[var(--surface-tertiary)]",
-                      editorSelectorOpen && "bg-[var(--surface-tertiary)]",
-                    )}
-                  >
-                    {target === null
-                      ? <Globe className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />
-                      : <Folder className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />}
-                    <span className="max-w-24 truncate">{currentLabel}</span>
-                    <ChevronDown
+            <div className="flex flex-col border-b border-[var(--border-primary)] bg-[var(--surface-tertiary)] shrink-0">
+              {/* Row 1: Label + target selector + category + edit/preview toggle */}
+              <div className="flex items-center justify-between px-4 py-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <h2 className="text-xs font-semibold shrink-0">
+                    {isEditingExisting ? t("editWikiPage", "Edit Page") : t("newWikiPage")}
+                  </h2>
+                  {/* Editor target selector — inline dropdown */}
+                  <div ref={editorSelectorRef} className="relative shrink-0">
+                    <button
+                      onClick={() => setEditorSelectorOpen(!editorSelectorOpen)}
                       className={cn(
-                        "h-2.5 w-2.5 shrink-0 text-[var(--text-tertiary)] transition-transform",
-                        editorSelectorOpen && "rotate-180",
+                        "flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md transition-colors",
+                        "bg-[var(--surface-secondary)] border border-[var(--border-primary)]",
+                        "hover:bg-[var(--surface-tertiary)]",
+                        editorSelectorOpen && "bg-[var(--surface-tertiary)]",
                       )}
-                    />
-                  </button>
-
-                  {editorSelectorOpen && (
-                    <div className="absolute left-0 top-full z-30 mt-1 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded-lg shadow-lg min-w-48 max-h-64 overflow-y-auto">
-                      {/* Global wiki */}
-                      <button
-                        onClick={() => {
-                          setTarget(null);
-                          setEditorSelectorOpen(false);
-                        }}
+                    >
+                      {target === null
+                        ? <Globe className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />
+                        : <Folder className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />}
+                      <span className="max-w-24 truncate">{currentLabel}</span>
+                      <ChevronDown
                         className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-secondary)]",
-                          target === null && "bg-[var(--surface-secondary)]",
+                          "h-2.5 w-2.5 shrink-0 text-[var(--text-tertiary)] transition-transform",
+                          editorSelectorOpen && "rotate-180",
                         )}
-                      >
-                        <Globe className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
-                        <span className="flex-1 text-left truncate font-medium">
-                          {t("wikiScopeGlobal")}
-                        </span>
-                        {target === null && <Check className="h-3 w-3 shrink-0 text-[var(--brand-primary)]" />}
-                      </button>
+                      />
+                    </button>
 
-                      {/* Project wikis */}
-                      {projectDirs.length > 0 && (
-                        <>
-                          <div className="px-3 py-1 text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider border-t border-[var(--border-primary)]">
-                            {t("wikiProjectWikis", "Project Wikis")}
-                          </div>
-                          {projectDirs.map((proj) => (
-                            <button
-                              key={proj.directory}
-                              onClick={() => {
-                                setTarget(proj.directory);
-                                setEditorSelectorOpen(false);
-                              }}
-                              className={cn(
-                                "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-secondary)]",
-                                target === proj.directory && "bg-[var(--surface-secondary)]",
-                              )}
-                            >
-                              <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
-                              <span className="flex-1 text-left truncate">{proj.label}</span>
-                              {target === proj.directory && (
-                                <Check className="h-3 w-3 shrink-0 text-[var(--brand-primary)]" />
-                              )}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  )}
+                    {editorSelectorOpen && (
+                      <div className="absolute left-0 top-full z-30 mt-1 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded-lg shadow-lg min-w-48 max-h-64 overflow-y-auto">
+                        {/* Global wiki */}
+                        <button
+                          onClick={() => {
+                            setTarget(null);
+                            setEditorSelectorOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-secondary)]",
+                            target === null && "bg-[var(--surface-secondary)]",
+                          )}
+                        >
+                          <Globe className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
+                          <span className="flex-1 text-left truncate font-medium">
+                            {t("wikiScopeGlobal")}
+                          </span>
+                          {target === null && <Check className="h-3 w-3 shrink-0 text-[var(--brand-primary)]" />}
+                        </button>
+
+                        {/* Project wikis */}
+                        {projectDirs.length > 0 && (
+                          <>
+                            <div className="px-3 py-1 text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider border-t border-[var(--border-primary)]">
+                              {t("wikiProjectWikis", "Project Wikis")}
+                            </div>
+                            {projectDirs.map((proj) => (
+                              <button
+                                key={proj.directory}
+                                onClick={() => {
+                                  setTarget(proj.directory);
+                                  setEditorSelectorOpen(false);
+                                }}
+                                className={cn(
+                                  "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-secondary)]",
+                                  target === proj.directory && "bg-[var(--surface-secondary)]",
+                                )}
+                              >
+                                <Folder className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
+                                <span className="flex-1 text-left truncate">{proj.label}</span>
+                                {target === proj.directory && (
+                                  <Check className="h-3 w-3 shrink-0 text-[var(--brand-primary)]" />
+                                )}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Category selector — after wiki target selector */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <label className="text-[10px] text-[var(--text-tertiary)] shrink-0">
+                      {t("category")}
+                    </label>
+                    <select
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="px-2 py-0.5 text-[10px] bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
+                    >
+                      {CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {CATEGORY_ICONS[cat]} {categoryName(cat)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <label className="text-[10px] text-[var(--text-tertiary)]">
+                  {/* Edit / Preview toggle */}
+                  <div className="flex items-center bg-[var(--surface-secondary)] rounded-md border border-[var(--border-primary)] p-0.5">
+                    <button
+                      onClick={() => setEditorMode("edit")}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+                        editorMode === "edit"
+                          ? "bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+                      )}
+                      title={t("edit")}
+                    >
+                      <Code2 className="h-3 w-3" />
+                      {t("edit")}
+                    </button>
+                    <button
+                      onClick={() => setEditorMode("preview")}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
+                        editorMode === "preview"
+                          ? "bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+                      )}
+                      title={t("preview")}
+                    >
+                      <Eye className="h-3 w-3" />
+                      {t("preview")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {/* Row 2: Title input + save/cancel actions */}
+              <div className="flex items-center gap-3 px-4 py-1.5 border-t border-[var(--border-primary)]">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <label className="text-[10px] text-[var(--text-tertiary)] shrink-0">
                     {t("title")}
                   </label>
                   <input
                     type="text"
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    className="px-2 py-0.5 text-xs bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] w-48"
+                    className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
                     placeholder={t("pageTitlePlaceholder")}
                   />
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <label className="text-[10px] text-[var(--text-tertiary)]">
-                    {t("category")}
-                  </label>
-                  <select
-                    value={editCategory}
-                    onChange={(e) => setEditCategory(e.target.value)}
-                    className="px-2 py-0.5 text-xs bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
-                  >
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {CATEGORY_ICONS[cat]} {categoryName(cat)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {/* Edit / Preview toggle */}
-                <div className="flex items-center bg-[var(--surface-secondary)] rounded-md border border-[var(--border-primary)] p-0.5">
-                  <button
-                    onClick={() => setEditorMode("edit")}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-                      editorMode === "edit"
-                        ? "bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm"
-                        : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
-                    )}
-                    title={t("edit")}
-                  >
-                    <Code2 className="h-3 w-3" />
-                    {t("edit")}
-                  </button>
-                  <button
-                    onClick={() => setEditorMode("preview")}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-                      editorMode === "preview"
-                        ? "bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm"
-                        : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
-                    )}
-                    title={t("preview")}
-                  >
-                    <Eye className="h-3 w-3" />
-                    {t("preview")}
-                  </button>
-                </div>
-                {/* Save actions */}
-                {isEditingExisting ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={handleMergePage}
-                      disabled={isMerging || !editTitle.trim() || !editContent.trim()}
-                      className="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-[var(--brand-primary)] text-[var(--brand-primary-text)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
-                      title={t("mergeSaveTooltip", "Merge new sections into existing page")}
-                    >
-                      <GitMerge className="h-3 w-3" />
-                      {isMerging ? t("saving") : t("mergeSave", "Merge & Save")}
-                    </button>
+                {/* Save / Cancel actions — right-aligned in title row */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {isEditingExisting ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={handleMergePage}
+                        disabled={isMerging || !editTitle.trim() || !editContent.trim()}
+                        className="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-[var(--brand-primary)] text-[var(--brand-primary-text)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                        title={t("mergeSaveTooltip", "Merge new sections into existing page")}
+                      >
+                        <GitMerge className="h-3 w-3" />
+                        {isMerging ? t("saving") : t("mergeSave", "Merge & Save")}
+                      </button>
+                      <button
+                        onClick={handleWritePage}
+                        disabled={isWriting || !editTitle.trim() || !editContent.trim()}
+                        className="px-3 py-1 text-[11px] font-medium text-[var(--text-secondary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors disabled:opacity-50"
+                        title={t("overwriteSaveTooltip", "Overwrite existing page completely")}
+                      >
+                        {isWriting ? t("saving") : t("overwriteSave", "Overwrite")}
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       onClick={handleWritePage}
                       disabled={isWriting || !editTitle.trim() || !editContent.trim()}
-                      className="px-3 py-1 text-[11px] font-medium text-[var(--text-secondary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors disabled:opacity-50"
-                      title={t("overwriteSaveTooltip", "Overwrite existing page completely")}
+                      className="px-3 py-1 text-[11px] font-medium bg-[var(--brand-primary)] text-[var(--brand-primary-text)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
-                      {isWriting ? t("saving") : t("overwriteSave", "Overwrite")}
+                      {isWriting ? t("saving") : t("save")}
                     </button>
-                  </div>
-                ) : (
+                  )}
                   <button
-                    onClick={handleWritePage}
-                    disabled={isWriting || !editTitle.trim() || !editContent.trim()}
-                    className="px-3 py-1 text-[11px] font-medium bg-[var(--brand-primary)] text-[var(--brand-primary-text)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                    onClick={() => {
+                      setShowEditor(false);
+                      setIsEditingExisting(false);
+                      setEditorMode("edit");
+                    }}
+                    className="px-3 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                   >
-                    {isWriting ? t("saving") : t("save")}
+                    {t("cancel")}
                   </button>
-                )}
-                <button
-                  onClick={() => {
-                    setShowEditor(false);
-                    setIsEditingExisting(false);
-                    setEditorMode("edit");
-                  }}
-                  className="px-3 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  {t("cancel")}
-                </button>
+                </div>
               </div>
             </div>
             {/* Unified editor/preview area */}

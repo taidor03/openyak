@@ -40,5 +40,12 @@
     "url": "https://bigquery.googleapis.com/mcp",
     "description": "Query data warehouses and run SQL analytics",
     "category": "data"
+  },
+  "google-workspace": {
+    "name": "Google Workspace",
+    "type": "local",
+    "description": "Gmail, Google Calendar, Drive, and Docs access",
+    "category": "productivity",
+    "command": ["uvx", "--from", "google-workspace-mcp", "google-workspace-worker"]
   }
 }
