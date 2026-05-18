@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
-import fs from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import { createServer, type ServerResponse, type Server } from "node:http";
-import path from "node:path";
+import * as path from "node:path";
 import { promisify } from "node:util";
 import { mockOpenYakApi, seedOpenYakStorage } from "./fixtures/openyak-api";
 
@@ -345,7 +345,7 @@ async function startRecorder(page: Page, name: string) {
     const filename = `${String(index).padStart(5, "0")}.png`;
     index += 1;
     chain = chain
-      .then(() => page.screenshot({ path: path.join(dir, filename), fullPage: false }))
+      .then(() => page.screenshot({ path: path.join(dir, filename), fullPage: false }).then(() => {}))
       .catch(() => undefined);
     setTimeout(capture, 120);
   };

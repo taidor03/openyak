@@ -35,6 +35,7 @@ from app.schemas.agent import PermissionRule
 from app.schemas.chat import PromptRequest
 from app.schemas.message import StepFinishReason
 from app.session.llm import stream_llm
+from app.models.message import Message
 from app.session.manager import (
     create_part,
     get_messages,
@@ -424,9 +425,30 @@ class SessionProcessor:
         job = sp.job
         session_factory = sp.session_factory
 
-        # --- Persist step-start part (mirrors OpenCode's StepStartPart) ---
+        # --- Create assistant message + step-start part atomically ---
+        # The message row is created here (lazily) together with its first
+        # part in a single transaction. This guarantees that no empty
+        # assistant message can ever exist in the DB — if the process
+        # crashes before reaching this point, there is simply no message.
+        _msg_data = getattr(sp, "_assistant_msg_data", None) or {
+            "role": "assistant",
+            "agent": getattr(sp.agent, "name", None),
+            "model_id": sp.model_id,
+            "provider_id": getattr(sp.provider, "id", None),
+        }
         async with session_factory() as db:
             async with db.begin():
+                # Only create the message if it doesn't already exist in DB.
+                # On subsequent steps, a previous step may have already
+                # created it; we check first to avoid UniqueViolation.
+                existing = await db.get(Message, self._assistant_msg_id)
+                if existing is None:
+                    msg = Message(
+                        id=self._assistant_msg_id,
+                        session_id=job.session_id,
+                        data=_msg_data,
+                    )
+                    db.add(msg)
                 await create_part(
                     db,
                     message_id=self._assistant_msg_id,

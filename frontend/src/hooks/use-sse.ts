@@ -243,10 +243,10 @@ export function useSSE(streamId: string | null) {
           connectionStore.getState().setStatus(status);
           if (status === "disconnected") {
             // Connection permanently lost — clean up streaming state.
-            // IMPORTANT: Refetch DB messages BEFORE clearing streaming state,
-            // matching the DONE handler pattern. Otherwise StreamingMessage
-            // unmounts before DB-fetched AssistantMessageGroup is ready,
-            // causing the response to appear blank.
+            // Unlike the DONE handler (which immediately finishes), here we
+            // try finishFromDatabase first because the connection was lost
+            // unexpectedly — the backend may still be running, and we need
+            // to check DB state before deciding whether to finalize.
             const sessionId = store.getState().sessionId;
             toast.error("Connection lost. Response may be incomplete.");
             (async () => {
@@ -640,34 +640,33 @@ export function useSSE(streamId: string | null) {
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
 
-      // Wait for DB messages to load BEFORE clearing streaming state.
-      // Otherwise StreamingMessage unmounts (isGenerating=false) before
-      // the DB-fetched AssistantMessageGroup is ready, causing a flash
-      // where the response text disappears.
-      try {
-        if (sessionId) {
-          await finishFromDatabase(sessionId);
-        }
-      } finally {
-        store.getState().finishGeneration();
-        connectionStore.getState().setStatus("idle");
-      }
-      // Delayed verification refetch — catches any React rendering race condition
-      // where the first refetch (before finishGeneration) returned stale data.
-      // By the time the streaming fallback expires (800ms), this refetch will have
-      // updated the React Query cache with the definitive DB content.
-      const _sid = sessionId;
-      if (_sid) {
+      // DONE is the authoritative signal from the backend that generation
+      // has finished. Immediately transition the UI out of the "generating"
+      // state — do NOT wait for a DB refetch first. The old approach
+      // (await finishFromDatabase before finishGeneration) could leave the
+      // UI stuck in "thinking" if the DB query was slow or returned stale
+      // data, and was the root cause of the "forced finishGeneration via
+      // idle recovery" problem.
+      store.getState().finishGeneration();
+      connectionStore.getState().setStatus("idle");
+
+      // Asynchronously refetch DB messages so the persisted AssistantMessage
+      // replaces the in-memory streaming state. The showStreamingFallback
+      // timer in message-list.tsx keeps StreamingMessage visible for up to
+      // 2 seconds, bridging the gap between finishGeneration and the DB
+      // data arriving in React Query cache.
+      if (sessionId) {
+        refreshLatestMessages(sessionId, queryClient);
+        // Delayed verification refetch — catches any React rendering race
+        // condition where the first refetch returned stale data.
         setTimeout(() => {
-          refreshLatestMessages(_sid, queryClient);
+          refreshLatestMessages(sessionId, queryClient);
         }, 500);
+        queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(sessionId) });
       }
 
       // Refetch sessions to pick up the title (set synchronously before DONE now)
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
-      if (_sid) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(_sid) });
-      }
 
       client.close();
     });
@@ -687,18 +686,13 @@ export function useSSE(streamId: string | null) {
       textBuffer.flush();
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
-      // Wait for DB messages (backend now persists partial text on error)
-      // before clearing streaming state, same as DONE handler.
-      try {
-        if (sessionId) {
-          await finishFromDatabase(sessionId);
-        }
-      } finally {
-        store.getState().finishGeneration();
-        connectionStore.getState().setStatus("idle");
-      }
-      // Delayed verification refetch (same as DONE handler)
+      // AGENT_ERROR is a terminal signal — immediately end generation state.
+      // Don't block on DB refetch (same principle as DONE handler).
+      store.getState().finishGeneration();
+      connectionStore.getState().setStatus("idle");
+      // Asynchronously refetch DB messages for partial content persisted on error
       if (sessionId) {
+        refreshLatestMessages(sessionId, queryClient);
         setTimeout(() => {
           refreshLatestMessages(sessionId, queryClient);
         }, 500);

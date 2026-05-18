@@ -154,6 +154,7 @@ class SessionPrompt:
         self._context_collapse_exhausted: bool = False
         self.finish_reason: str = "stop"
         self.assistant_msg_id: str | None = None
+        self._assistant_msg_data: dict[str, Any] = {}  # Set per-step in _loop
 
     # ------------------------------------------------------------------
     # Properties
@@ -481,20 +482,22 @@ class SessionPrompt:
                 llm_messages, mw_ctx,
             )
 
-            # Create assistant message shell
-            async with self.session_factory() as db:
-                async with db.begin():
-                    assistant_msg = await _create_message(
-                        db,
-                        session_id=self.job.session_id,
-                        data={
-                            "role": "assistant",
-                            "agent": self.agent.name,
-                            "model_id": self.model_id,
-                            "provider_id": self.provider.id,
-                        },
-                    )
-            self.assistant_msg_id = assistant_msg.id
+            # Pre-generate message ID without persisting the message shell.
+            # The actual message row is created lazily inside processor.process()
+            # when the first part (step-start) is persisted. This guarantees
+            # that no empty assistant message can ever exist in the DB — the
+            # message is always created together with its first part in a
+            # single transaction.
+            from app.utils.id import generate_ulid
+            self.assistant_msg_id = generate_ulid()
+
+            # Message metadata for lazy creation (used by processor.process)
+            self._assistant_msg_data = {
+                "role": "assistant",
+                "agent": self.agent.name,
+                "model_id": self.model_id,
+                "provider_id": self.provider.id,
+            }
 
             # Execute one LLM step — processor handles streaming + tool dispatch
             processor: SessionProcessor = SessionProcessor(
@@ -802,6 +805,13 @@ class SessionPrompt:
         """Cleanup, persist accumulated cost/tokens, publish DONE, auto-title."""
         from app.session.processor import _delete_empty_assistant_messages
 
+        # ── Clean up empty assistant messages BEFORE sending DONE ──
+        # If we wait until after DONE, the frontend will refetch DB messages
+        # and see empty assistant message shells (created for the next step
+        # that never ran). This causes a visible flash of "empty result"
+        # before the cleanup deletes them a few seconds later.
+        await _delete_empty_assistant_messages(self.session_factory, self.job.session_id)
+
         # ── Publish DONE IMMEDIATELY — unlock the frontend UI ──
         # This is the most critical operation: it releases the frontend from the
         # "thinking" / "generating" state. Any delay here (e.g., due to DB
@@ -841,6 +851,8 @@ class SessionPrompt:
                         "Failed to persist title for %s", self.job.session_id
                     )
 
+        # Second cleanup pass — catch any empty messages created by
+        # post-DONE operations (unlikely but possible on error paths).
         await _delete_empty_assistant_messages(self.session_factory, self.job.session_id)
 
         # Persist accumulated cost and tokens on the last assistant message
