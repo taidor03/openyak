@@ -482,16 +482,23 @@ class SessionPrompt:
                 llm_messages, mw_ctx,
             )
 
-            # Pre-generate message ID without persisting the message shell.
-            # The actual message row is created lazily inside processor.process()
-            # when the first part (step-start) is persisted. This guarantees
-            # that no empty assistant message can ever exist in the DB — the
-            # message is always created together with its first part in a
-            # single transaction.
+            # Create assistant message shell
             from app.utils.id import generate_ulid
             self.assistant_msg_id = generate_ulid()
+            async with self.session_factory() as db:
+                async with db.begin():
+                    msg = Message(
+                        id=self.assistant_msg_id,
+                        session_id=self.job.session_id,
+                        data={
+                            "role": "assistant",
+                            "agent": self.agent.name,
+                            "model_id": self.model_id,
+                            "provider_id": self.provider.id,
+                        },
+                    )
+                    db.add(msg)
 
-            # Message metadata for lazy creation (used by processor.process)
             self._assistant_msg_data = {
                 "role": "assistant",
                 "agent": self.agent.name,
@@ -803,21 +810,8 @@ class SessionPrompt:
 
     async def _post_loop(self) -> None:
         """Cleanup, persist accumulated cost/tokens, publish DONE, auto-title."""
-        from app.session.processor import _delete_empty_assistant_messages
 
-        # ── Clean up empty assistant messages BEFORE sending DONE ──
-        # If we wait until after DONE, the frontend will refetch DB messages
-        # and see empty assistant message shells (created for the next step
-        # that never ran). This causes a visible flash of "empty result"
-        # before the cleanup deletes them a few seconds later.
-        await _delete_empty_assistant_messages(self.session_factory, self.job.session_id)
-
-        # ── Publish DONE IMMEDIATELY — unlock the frontend UI ──
-        # This is the most critical operation: it releases the frontend from the
-        # "thinking" / "generating" state. Any delay here (e.g., due to DB
-        # operations below) causes the UI timer to keep ticking and the input
-        # to stay disabled. All subsequent operations are non-critical and can
-        # safely run after the frontend has already transitioned to "idle".
+        # ── Publish DONE ──
         self.job.publish(
             SSEEvent(
                 DONE,
@@ -831,13 +825,9 @@ class SessionPrompt:
             )
         )
 
-        # ── Non-critical post-DONE operations ──
-        # These run after the frontend has already received DONE. Failures
-        # here do not affect the user-visible generation state.
+        # ── Post-DONE operations ──
 
-        # Set title on first turn — use first user message directly.
-        # Published as TITLE_UPDATE after DONE; the frontend handles late
-        # title updates gracefully (sidebar will refresh via query invalidation).
+        # Set title on first turn
         if self.is_first_turn:
             title = self.first_user_text.strip()[:60]
             if title:
@@ -850,10 +840,6 @@ class SessionPrompt:
                     logger.warning(
                         "Failed to persist title for %s", self.job.session_id
                     )
-
-        # Second cleanup pass — catch any empty messages created by
-        # post-DONE operations (unlikely but possible on error paths).
-        await _delete_empty_assistant_messages(self.session_factory, self.job.session_id)
 
         # Persist accumulated cost and tokens on the last assistant message
         if self.assistant_msg_id and (

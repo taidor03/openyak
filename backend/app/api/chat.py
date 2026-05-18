@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 from typing import Any
 
@@ -81,45 +80,6 @@ def _ensure_image_attachments_supported(
     _provider, model_info = resolved
     if not model_info.capabilities.vision:
         raise _unsupported_images_error()
-
-
-def _on_task_done(task: asyncio.Task[None], *, job: GenerationJob) -> None:
-    """Callback for generation tasks — ensures frontend never gets stuck.
-
-    Guarantees that either DONE or AGENT_ERROR is published and job.complete()
-    is called, even when the task is cancelled or run_generation's finally block
-    doesn't execute (e.g., cancellation before the coroutine starts).
-
-    Without this, an unhandled exception or cancellation would leave the
-    frontend stuck in the "generating" state forever because /chat/active
-    would still report the job as active.
-    """
-    if task.cancelled():
-        # Task was cancelled — run_generation's finally block may not have
-        # executed if the cancellation happened before the coroutine started
-        # (e.g., semaphore timeout, abort before acquire). Ensure the job is
-        # marked complete so /chat/active stops reporting it.
-        if not job.completed:
-            logger.info("Generation task %s was cancelled, ensuring job completion", task.get_name())
-            job.publish(SSEEvent(DONE, {
-                "session_id": job.session_id,
-                "finish_reason": "aborted",
-            }))
-            job.complete()
-        return
-
-    exc = task.exception()
-    if exc is not None:
-        logger.error("Unhandled exception in generation task %s: %s", task.get_name(), exc, exc_info=exc)
-        if not job.completed:
-            try:
-                job.publish(SSEEvent(AGENT_ERROR, {"error_message": "An internal error occurred. Please try again."}))
-            except Exception:
-                logger.exception("Failed to publish AGENT_ERROR for task %s", task.get_name())
-            finally:
-                # Ensure job.complete() is always called even if publish fails,
-                # so /chat/active stops reporting this job as active.
-                job.complete()
 
 
 async def _run_with_semaphore(sm: StreamManager, job: GenerationJob, coro) -> None:
@@ -222,7 +182,6 @@ async def start_prompt(
         _run_with_semaphore(sm, job, coro),
         name=f"gen-{stream_id}",
     )
-    task.add_done_callback(functools.partial(_on_task_done, job=job))
     job.task = task  # prevent GC from silently cancelling the task
 
     return PromptResponse(stream_id=stream_id, session_id=session_id)
@@ -308,7 +267,6 @@ async def start_compaction(
         _run_with_semaphore(sm, job, _run_compaction_job()),
         name=f"compact-{stream_id}",
     )
-    task.add_done_callback(functools.partial(_on_task_done, job=job))
     job.task = task
 
     return PromptResponse(stream_id=stream_id, session_id=body.session_id)
@@ -376,7 +334,6 @@ async def edit_and_resend(
         _run_with_semaphore(sm, job, coro),
         name=f"gen-edit-{stream_id}",
     )
-    task.add_done_callback(functools.partial(_on_task_done, job=job))
     job.task = task
 
     return PromptResponse(stream_id=stream_id, session_id=body.session_id)
@@ -433,7 +390,6 @@ async def stream_events(
         # Send padding first to flush the tunnel buffer
         yield _SSE_PADDING
 
-        done_sent = False
         try:
             while True:
                 try:
@@ -441,32 +397,12 @@ async def stream_events(
                     if event is None:
                         break
                     yield event.encode()
-                    if event.event in ("done", "agent-error"):
-                        done_sent = True
-                        # After sending a terminal event, stop the loop.
-                        # The None sentinel should follow, but if it was lost
-                        # (e.g., queue full during job.complete()), continuing
-                        # would send heartbeats indefinitely — keeping the
-                        # frontend's SSE connection alive and preventing idle
-                        # recovery from triggering, leaving the UI stuck in
-                        # "thinking" forever.
-                        break
                 except asyncio.TimeoutError:
-                    if done_sent:
-                        # Safety: if we sent DONE but never received None,
-                        # break out instead of sending more heartbeats.
-                        break
                     # Send heartbeat as a named SSE event so the frontend
                     # EventSource triggers listeners and resets its timer.
                     yield "event: heartbeat\ndata: {}\n\n"
         except asyncio.CancelledError:
             pass
-        finally:
-            if done_sent:
-                # Yield an SSE comment to force an extra write/flush cycle.
-                # Prevents the TCP connection from closing before the DONE
-                # bytes are fully transmitted to the client.
-                yield ": flush\n\n"
 
     return StreamingResponse(
         event_generator(),

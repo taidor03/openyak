@@ -32,6 +32,8 @@ import {
   useSkillToggle,
   useSkillStoreSearch,
   useInstallSkill,
+  useCreateSkill,
+  useDeleteSkill,
 } from "@/hooks/use-plugins";
 import {
   useConnectors,
@@ -43,12 +45,14 @@ import {
   useSetConnectorToken,
 } from "@/hooks/use-connectors";
 import type { PluginInfo, SkillInfo, StoreSkill } from "@/types/plugins";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { ConnectorInfo } from "@/types/connectors";
 
 const SOURCE_COLORS: Record<string, string> = {
   builtin: "bg-blue-500/10 text-blue-400",
   global: "bg-amber-500/10 text-amber-400",
   project: "bg-emerald-500/10 text-emerald-400",
+  agent: "bg-violet-500/10 text-violet-400",
   plugin: "bg-purple-500/10 text-purple-400",
   bundled: "bg-blue-500/10 text-blue-400",
   custom: "bg-orange-500/10 text-orange-400",
@@ -549,7 +553,8 @@ function PluginsTab({ search }: { search: string }) {
 
 function SkillsTab({ search }: { search: string }) {
   const { t } = useTranslation("plugins");
-  const { data: skills, isLoading } = useSkills();
+  const workspacePath = useWorkspaceStore((s) => s.activeWorkspacePath);
+  const { data: skills, isLoading } = useSkills(workspacePath);
   const [storeOpen, setStoreOpen] = useState(false);
 
   const allSkills = useMemo(() => skills ?? [], [skills]);
@@ -563,6 +568,7 @@ function SkillsTab({ search }: { search: string }) {
   const bundled = allSkills.filter((s) => s.source === "bundled");
   const plugin = allSkills.filter((s) => s.source === "plugin");
   const project = allSkills.filter((s) => s.source === "project");
+  const agent = allSkills.filter((s) => s.source === "agent");
 
   const filterSkills = (list: SkillInfo[]) =>
     search
@@ -576,9 +582,10 @@ function SkillsTab({ search }: { search: string }) {
   const filteredBundled = filterSkills(bundled);
   const filteredPlugin = filterSkills(plugin);
   const filteredProject = filterSkills(project);
+  const filteredAgent = filterSkills(agent);
 
   const installedTotal =
-    filteredBundled.length + filteredPlugin.length + filteredProject.length;
+    filteredBundled.length + filteredPlugin.length + filteredProject.length + filteredAgent.length;
 
   return (
     <div className="space-y-6">
@@ -624,6 +631,13 @@ function SkillsTab({ search }: { search: string }) {
               title={t("projectSkills")}
               skills={filteredProject}
               source="project"
+            />
+          )}
+          {filteredAgent.length > 0 && (
+            <SkillGroup
+              title={t("agentSkills", "Agent Skills")}
+              skills={filteredAgent}
+              source="agent"
             />
           )}
         </>

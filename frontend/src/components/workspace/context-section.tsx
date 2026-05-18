@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Plug, Brain, Pencil, Check, X, Download, RefreshCw } from "lucide-react";
+import { ChevronDown, Plug, Brain, Pencil, Check, X, Download, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useConnectors } from "@/hooks/use-connectors";
 import { useSkills } from "@/hooks/use-plugins";
@@ -71,20 +71,63 @@ function ConnectorsBlock() {
 }
 
 function SkillsSummary() {
-  const { data: skills, isLoading } = useSkills();
+  const workspacePath = useWorkspaceStore((s) => s.activeWorkspacePath);
+  const { data: skills, isLoading } = useSkills(workspacePath);
+
+  const { project, agent, bundled, plugin } = useMemo(() => {
+    const all = skills ?? [];
+    return {
+      project: all.filter((s) => s.source === "project"),
+      agent: all.filter((s) => s.source === "agent"),
+      bundled: all.filter((s) => s.source === "bundled"),
+      plugin: all.filter((s) => s.source === "plugin"),
+    };
+  }, [skills]);
+
+  const localCount = project.length + agent.length;
+  const totalCount = (skills ?? []).length;
 
   if (isLoading) return null;
-  if (!skills || skills.length === 0) return null;
+  if (totalCount === 0) return null;
 
   return (
     <div>
-      <p className="px-4 py-1.5 text-[11px] font-medium text-[var(--text-tertiary)]">
-        Skills
-      </p>
-      <div className="px-4 py-1">
-        <span className="text-[13px] text-[var(--text-secondary)]">
-          {skills.length} skills available
+      <div className="flex items-center justify-between px-4 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 text-[var(--text-tertiary)]" />
+          <p className="text-[11px] font-medium text-[var(--text-tertiary)]">
+            Skills
+          </p>
+        </div>
+        <span className="text-[11px] text-[var(--text-quaternary)]">
+          {totalCount}
         </span>
+      </div>
+      <div className="px-4 pb-1 space-y-0.5">
+        {localCount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-purple-400 shrink-0" />
+            <span className="text-[12px] text-[var(--text-secondary)]">
+              {localCount} project{localCount > 1 ? "s" : ""}
+            </span>
+          </div>
+        )}
+        {bundled.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
+            <span className="text-[12px] text-[var(--text-secondary)]">
+              {bundled.length} bundled
+            </span>
+          </div>
+        )}
+        {plugin.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
+            <span className="text-[12px] text-[var(--text-secondary)]">
+              {plugin.length} plugin{plugin.length > 1 ? "s" : ""}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

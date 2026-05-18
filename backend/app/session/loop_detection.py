@@ -12,9 +12,6 @@ warn-then-stop strategy inspired by DeerFlow's LoopDetectionMiddleware:
 
 This is strictly better than the old binary block/allow: the model gets a
 chance to self-correct before being hard-stopped.
-
-Improved: tool-category-aware detection with relaxed thresholds for
-read-only / informational tools that naturally repeat in complex tasks.
 """
 
 from __future__ import annotations
@@ -41,37 +38,6 @@ HARD_STOP_MSG = (
     "[FORCED STOP] Repeated tool calls exceeded the safety limit. "
     "Producing final answer with results collected so far."
 )
-
-# --- Tool category classification for loop detection ---
-#
-# Read-only / informational tools are naturally repeated in complex agent
-# tasks (e.g., reading the same file to verify state, listing directory
-# contents, checking search results).  These should use relaxed thresholds
-# to avoid false-positive loop blocks that interrupt legitimate work.
-#
-# State-modifying tools (write, edit, bash) are more likely to indicate
-# a true loop when repeated identically, so they keep the default thresholds.
-
-# Tools where repeated identical calls are NORMAL and expected
-_READ_ONLY_TOOLS: frozenset[str] = frozenset({
-    "read", "search", "list_files", "glob", "grep",
-    "web_search", "codebase_search", "todo",
-    "present_file", "artifact",  # display tools
-})
-
-# Multiplier applied to warn_threshold / hard_limit for read-only tools.
-# E.g., if hard_limit=5 and multiplier=3, read-only tools block at 15.
-_READ_ONLY_MULTIPLIER = 3
-
-
-def _is_read_only_tool(tool_name: str) -> bool:
-    """Check if a tool is read-only / informational (relaxed loop detection)."""
-    if tool_name in _READ_ONLY_TOOLS:
-        return True
-    # MCP tools follow the pattern mcp_tool_*
-    if tool_name.startswith("mcp_tool_"):
-        return True
-    return False
 
 
 def _hash_tool_call(name: str, args: dict) -> str:
@@ -133,9 +99,6 @@ class LoopDetector:
         """Check a tool call for loop patterns.
 
         Returns a LoopCheckResult indicating whether to allow, warn, or block.
-
-        Read-only tools use relaxed thresholds (multiplied by _READ_ONLY_MULTIPLIER)
-        because repeated reads/searches are normal in complex agent workflows.
         """
         call_hash = _hash_tool_call(tool_name, tool_args)
 
@@ -153,31 +116,20 @@ class LoopDetector:
 
         count = history.count(call_hash)
 
-        # Determine effective thresholds based on tool category
-        is_read_only = _is_read_only_tool(tool_name)
-        if is_read_only:
-            effective_warn = self.warn_threshold * _READ_ONLY_MULTIPLIER
-            effective_hard = self.hard_limit * _READ_ONLY_MULTIPLIER
-        else:
-            effective_warn = self.warn_threshold
-            effective_hard = self.hard_limit
-
-        if count >= effective_hard:
+        if count >= self.hard_limit:
             logger.error(
-                "Loop hard limit reached for session %s: %s called %d times "
-                "(read_only=%s, effective_limit=%d)",
-                session_id, tool_name, count, is_read_only, effective_hard,
+                "Loop hard limit reached for session %s: %s called %d times",
+                session_id, tool_name, count,
             )
             return LoopCheckResult(action="block", message=HARD_STOP_MSG)
 
-        if count >= effective_warn:
+        if count >= self.warn_threshold:
             warned = self._warned[session_id]
             if call_hash not in warned:
                 warned.add(call_hash)
                 logger.warning(
-                    "Repetitive tool calls detected for session %s: %s (%d times, "
-                    "read_only=%s, effective_warn=%d)",
-                    session_id, tool_name, count, is_read_only, effective_warn,
+                    "Repetitive tool calls detected for session %s: %s (%d times)",
+                    session_id, tool_name, count,
                 )
                 return LoopCheckResult(action="warn", message=WARNING_MSG)
 

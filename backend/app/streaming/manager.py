@@ -6,11 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from app.streaming.events import AGENT_ERROR, DESYNC, DONE, SSEEvent
-
-# Events that MUST be delivered to the frontend even when the queue overflows.
-# Losing these causes the UI to get permanently stuck in "generating" state.
-_TERMINAL_EVENTS = frozenset({DONE, AGENT_ERROR})
+from app.streaming.events import DESYNC, SSEEvent
 
 logger = logging.getLogger(__name__)
 
@@ -78,36 +74,11 @@ class GenerationJob:
                         q.get_nowait()
                     except asyncio.QueueEmpty:
                         break
-
-                if event.event in _TERMINAL_EVENTS:
-                    # Terminal events MUST be delivered — losing DONE/AGENT_ERROR
-                    # causes the frontend to stay stuck in "generating" forever.
-                    # Aggressively drain and retry to guarantee delivery.
-                    drained = 0
-                    while not q.empty():
-                        try:
-                            q.get_nowait()
-                            drained += 1
-                        except asyncio.QueueEmpty:
-                            break
-                    if drained > 0:
-                        logger.warning(
-                            "Terminal event delivery: drained %d events from queue for event %s",
-                            drained, event.event,
-                        )
-                    try:
-                        q.put_nowait(event)
-                    except asyncio.QueueFull:
-                        logger.error(
-                            "CRITICAL: Failed to deliver terminal event %s even after queue drain",
-                            event.event,
-                        )
-                else:
-                    # Non-terminal: notify client that events were lost
-                    try:
-                        q.put_nowait(SSEEvent(DESYNC, {"dropped_event_id": event.id}))
-                    except Exception:
-                        pass
+                # Notify client that events were lost
+                try:
+                    q.put_nowait(SSEEvent(DESYNC, {"dropped_event_id": event.id}))
+                except Exception:
+                    pass
 
     def subscribe(self, last_event_id: int = 0) -> asyncio.Queue[SSEEvent | None]:
         """Create a subscriber queue. Replays missed events if last_event_id > 0."""
@@ -160,7 +131,7 @@ class GenerationJob:
         return q
 
     def complete(self) -> None:
-        """Mark generation as complete. Signal all subscribers. Idempotent."""
+        """Mark generation as complete. Signal all subscribers."""
         if self._completed:
             return
         self._completed = True

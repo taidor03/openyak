@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { API, queryKeys } from "@/lib/constants";
-import type { ConnectorsResponse } from "@/types/connectors";
+import type { ConnectorsResponse, ConnectorInfo } from "@/types/connectors";
 
 function errorDetail(error: unknown, fallback: string) {
   if (
@@ -19,6 +19,38 @@ function errorDetail(error: unknown, fallback: string) {
   }
   if (error instanceof Error) return error.message || fallback;
   return fallback;
+}
+
+/** Update a single connector in the cached ConnectorsResponse */
+function updateConnectorInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  connectorId: string,
+  updater: (c: ConnectorInfo) => ConnectorInfo,
+) {
+  queryClient.setQueryData<ConnectorsResponse>(queryKeys.connectors, (old) => {
+    if (!old) return old;
+    const connector = old.connectors[connectorId];
+    if (!connector) return old;
+    return {
+      ...old,
+      connectors: {
+        ...old.connectors,
+        [connectorId]: updater(connector),
+      },
+    };
+  });
+}
+
+/** Remove a connector from the cached ConnectorsResponse */
+function removeConnectorFromCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  connectorId: string,
+) {
+  queryClient.setQueryData<ConnectorsResponse>(queryKeys.connectors, (old) => {
+    if (!old) return old;
+    const { [connectorId]: _, ...rest } = old.connectors;
+    return { ...old, connectors: rest };
+  });
 }
 
 export function useConnectors() {
@@ -38,7 +70,15 @@ export function useConnectorToggle() {
       api.post<{ success: boolean }>(
         enable ? API.CONNECTORS.ENABLE(id) : API.CONNECTORS.DISABLE(id),
       ),
-    onSuccess: () => {
+    onSuccess: (_data, { id, enable }) => {
+      // Optimistic cache update: instantly reflect enabled/disabled state
+      updateConnectorInCache(queryClient, id, (c) => ({
+        ...c,
+        enabled: enable,
+        status: enable ? "disconnected" : "disabled",
+        connected: enable ? c.connected : false,
+      }));
+      // Background refresh to sync with server truth
       queryClient.invalidateQueries({ queryKey: queryKeys.connectors });
     },
   });
@@ -61,7 +101,12 @@ export function useConnectorDisconnect() {
   return useMutation({
     mutationFn: (id: string) =>
       api.post<{ success: boolean }>(API.CONNECTORS.DISCONNECT(id)),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      updateConnectorInCache(queryClient, id, (c) => ({
+        ...c,
+        connected: false,
+        status: "disconnected",
+      }));
       queryClient.invalidateQueries({ queryKey: queryKeys.connectors });
     },
   });
@@ -72,7 +117,13 @@ export function useConnectorReconnect() {
   return useMutation({
     mutationFn: (id: string) =>
       api.post<{ success: boolean }>(API.CONNECTORS.RECONNECT(id)),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      updateConnectorInCache(queryClient, id, (c) => ({
+        ...c,
+        connected: true,
+        status: "connected",
+        error: null,
+      }));
       queryClient.invalidateQueries({ queryKey: queryKeys.connectors });
     },
     onError: (error) => {
@@ -111,7 +162,9 @@ export function useRemoveConnector() {
   return useMutation({
     mutationFn: (id: string) =>
       api.delete<{ success: boolean }>(API.CONNECTORS.REMOVE(id)),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      // Immediately remove from cache
+      removeConnectorFromCache(queryClient, id);
       queryClient.invalidateQueries({ queryKey: queryKeys.connectors });
     },
   });

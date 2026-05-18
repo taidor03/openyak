@@ -61,11 +61,14 @@ def _load_catalog() -> tuple[list[dict[str, Any]], int]:
 
 
 def _skill_source(skill_name: str, location: str) -> str:
-    """Determine the source of a skill: 'plugin', 'bundled', or 'project'."""
+    """Determine the source of a skill: 'plugin', 'bundled', 'agent', or 'project'."""
     if ":" in skill_name:
         return "plugin"
     if "/data/skills/" in location or "\\data\\skills\\" in location:
         return "bundled"
+    # Skills from .agents/<agent-name>/skills/ are per-agent skills
+    if "/.agents/" in location or "\\.agents\\" in location:
+        return "agent"
     return "project"
 
 
@@ -81,8 +84,22 @@ def _skill_to_dict(skill, registry: SkillRegistry) -> dict[str, Any]:
 
 
 @router.get("/skills")
-async def list_skills(registry: SkillRegistryDep) -> list[dict[str, Any]]:
-    """List all discovered skills."""
+async def list_skills(
+    registry: SkillRegistryDep,
+    workspace_path: str | None = None,
+) -> list[dict[str, Any]]:
+    """List all discovered skills.
+
+    If *workspace_path* is provided and differs from the registry's
+    current project directory, the registry is rescanned for that
+    project so that per-project / per-agent skills are up to date.
+    """
+    if workspace_path:
+        resolved = Path(workspace_path).resolve()
+        if resolved.is_dir():
+            registry_dir = Path(registry._project_dir).resolve() if registry._project_dir else None
+            if registry_dir != resolved:
+                registry.scan(project_dir=str(resolved))
     return [_skill_to_dict(skill, registry) for skill in registry.all_skills()]
 
 
@@ -96,7 +113,184 @@ async def get_skill(registry: SkillRegistryDep, skill_name: str) -> dict[str, An
         "name": skill.name,
         "description": skill.description,
         "location": skill.location,
+        "source": _skill_source(skill.name, skill.location),
+        "enabled": not registry.is_disabled(skill_name),
         "content": skill.content,
+    }
+
+
+# ---------------------------------------------------------------------
+# CRUD for project-level skill files
+# ---------------------------------------------------------------------
+
+
+class CreateSkillRequest(BaseModel):
+    """Body for ``POST /api/skills/create``."""
+
+    name: str
+    description: str
+    content: str = ""
+    # Where to create the skill:
+    #   "project"   → .openyak/skills/<name>/SKILL.md
+    #   "agents"    → .agents/skills/<name>/SKILL.md  (shared)
+    #   "<agent>"    → .agents/<agent>/skills/<name>/SKILL.md  (per-agent)
+    target: str = "project"
+    # The actual workspace/project directory (sent by the frontend from
+    # the current session's directory). If omitted, falls back to the
+    # registry's project_dir.
+    workspace_path: str | None = None
+
+
+class UpdateSkillRequest(BaseModel):
+    """Body for ``PUT /api/skills/{skill_name}``."""
+
+    content: str
+
+
+def _resolve_project_dir(registry: SkillRegistry, workspace_path: str | None = None) -> Path | None:
+    """Resolve the project directory.
+
+    Priority:
+      1. Explicitly passed ``workspace_path`` (from the current session)
+      2. The registry's stored ``_project_dir``
+    The value "." is resolved to the current working directory.
+    """
+    project_dir_str: str | None = None
+
+    # 1. Explicitly passed workspace path (most accurate)
+    if workspace_path and workspace_path != ".":
+        project_dir_str = workspace_path
+
+    # 2. Try the registry's stored project_dir
+    if not project_dir_str and hasattr(registry, "_project_dir") and registry._project_dir:
+        project_dir_str = registry._project_dir
+
+    if not project_dir_str:
+        return None
+
+    resolved = Path(project_dir_str).resolve()
+    return resolved if resolved.is_dir() else None
+
+
+def _skill_target_dir(target: str, project_dir: Path, slug: str) -> Path:
+    """Resolve the target directory for a new skill based on target type."""
+    if target == "project":
+        return project_dir / ".openyak" / "skills" / slug
+    elif target == "agents":
+        return project_dir / ".agents" / "skills" / slug
+    else:
+        # Per-agent: target is the agent name
+        return project_dir / ".agents" / target / "skills" / slug
+
+
+@router.post("/skills/create")
+async def create_skill(
+    registry: SkillRegistryDep,
+    body: CreateSkillRequest,
+) -> dict[str, Any]:
+    """Create a new project-level skill file on disk and register it."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Skill name cannot be empty")
+
+    project_dir = _resolve_project_dir(registry, body.workspace_path)
+    if project_dir is None:
+        raise HTTPException(status_code=400, detail="No project directory available — open a workspace first")
+
+    slug = _slug(name)
+    target_dir = _skill_target_dir(body.target, project_dir, slug)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    skill_path = target_dir / "SKILL.md"
+
+    if skill_path.exists():
+        raise HTTPException(status_code=409, detail=f"Skill '{name}' already exists at {skill_path}")
+
+    # Build SKILL.md content with YAML frontmatter
+    frontmatter = f"---\nname: {name}\ndescription: {body.description.strip()}\n---\n\n"
+    skill_path.write_text(frontmatter + body.content, encoding="utf-8")
+
+    # Re-scan so the new skill is picked up
+    registry.scan(project_dir=str(project_dir))
+
+    skill = registry.get(name)
+    if skill is None:
+        raise HTTPException(status_code=500, detail="Skill was written but not discovered after scan")
+
+    return {
+        "success": True,
+        "skill": _skill_to_dict(skill, registry),
+    }
+
+
+@router.put("/skills/{skill_name}")
+async def update_skill(
+    registry: SkillRegistryDep,
+    skill_name: str,
+    body: UpdateSkillRequest,
+) -> dict[str, Any]:
+    """Update an existing project-level or agent-level skill's content."""
+    skill = registry.get(skill_name)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_name}")
+
+    skill_path = Path(skill.location)
+    if not skill_path.is_file():
+        raise HTTPException(status_code=400, detail="Skill file not found on disk")
+
+    source = _skill_source(skill_name, skill.location)
+    if source == "bundled":
+        raise HTTPException(status_code=403, detail="Cannot edit bundled skills")
+
+    # Read existing content and replace everything after frontmatter
+    existing = skill_path.read_text(encoding="utf-8")
+    # Preserve frontmatter if present
+    if existing.startswith("---"):
+        end = existing.find("---", 3)
+        if end != -1:
+            frontmatter = existing[: end + 3]
+            skill_path.write_text(frontmatter + "\n\n" + body.content, encoding="utf-8")
+        else:
+            skill_path.write_text(body.content, encoding="utf-8")
+    else:
+        skill_path.write_text(body.content, encoding="utf-8")
+
+    # Re-scan to refresh cached content
+    project_dir = _resolve_project_dir(registry)
+    registry.scan(project_dir=str(project_dir) if project_dir else None)
+
+    return {
+        "success": True,
+        "skill": _skill_to_dict(registry.get(skill_name), registry) if registry.get(skill_name) else None,
+    }
+
+
+@router.delete("/skills/{skill_name}")
+async def delete_skill(
+    registry: SkillRegistryDep,
+    skill_name: str,
+) -> dict[str, Any]:
+    """Delete a project-level or agent-level skill file and unregister it."""
+    skill = registry.get(skill_name)
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_name}")
+
+    source = _skill_source(skill_name, skill.location)
+    if source == "bundled":
+        raise HTTPException(status_code=403, detail="Cannot delete bundled skills")
+
+    skill_path = Path(skill.location)
+    skill_dir = skill_path.parent
+
+    # Remove the skill directory (SKILL.md + any bundled files)
+    if skill_dir.is_dir():
+        import shutil
+        shutil.rmtree(skill_dir, ignore_errors=True)
+
+    registry.unregister(skill_name)
+
+    return {
+        "success": True,
+        "skills": [_skill_to_dict(s, registry) for s in registry.all_skills()],
     }
 
 

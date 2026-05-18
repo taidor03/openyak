@@ -142,9 +142,6 @@ class Settings(BaseSettings):
     # --- Loop Detection ---
     loop_warn_threshold: int = 5  # warn after N repeated identical tool calls
     loop_hard_limit: int = 8  # hard-block after N repeated identical tool calls
-    # Note: read-only tools (read, search, grep, etc.) use relaxed thresholds
-    # (multiplied by 3x) because repeated reads/searches are normal in
-    # complex agent workflows. See loop_detection.py for details.
 
     # --- Scheduler ---
     scheduler_poll_interval: int = 30  # seconds between task schedule checks

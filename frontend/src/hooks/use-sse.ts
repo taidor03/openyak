@@ -17,7 +17,6 @@ import { api } from "@/lib/api";
 import type { SessionResponse } from "@/types/session";
 import type { ArtifactType } from "@/types/artifact";
 import type { PaginatedMessages } from "@/types/message";
-import { mergeLatestPageIntoCache, refreshLatestMessages } from "@/lib/message-cache";
 
 // ─── Module-level state ───
 // Persisted across component mounts to survive React navigation.
@@ -160,12 +159,9 @@ export function useSSE(streamId: string | null) {
         textBuffer.flush();
         reasoningBuffer.flush();
 
-        // IMPORTANT: Use smart merge instead of invalidateQueries.
-        // invalidateQueries triggers useInfiniteQuery to re-fetch ALL pages
-        // using their stored pageParams. When total has increased, the latest
-        // page's fixed offset no longer covers the newest messages, causing
-        // them to silently vanish from the UI.
-        await refreshLatestMessages(sessionId, queryClient);
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.messages.list(sessionId),
+        });
         await waitForNextPaint();
 
         // Check whether the DB now contains a terminal step-finish. If it does,
@@ -210,7 +206,18 @@ export function useSSE(streamId: string | null) {
             await queryClient.cancelQueries({ queryKey: queryKeys.messages.list(sessionId) });
             queryClient.setQueryData<InfiniteData<PaginatedMessages>>(
               queryKeys.messages.list(sessionId),
-              (old) => mergeLatestPageIntoCache(latestPage, old),
+              (old) => {
+                if (!old) {
+                  return {
+                    pages: [latestPage],
+                    pageParams: [-1],
+                  };
+                }
+                return {
+                  ...old,
+                  pages: [...old.pages.slice(0, -1), latestPage],
+                };
+              },
             );
             if (!canFinalizeFromPayload(latestPage)) return false;
           } catch {
@@ -622,8 +629,7 @@ export function useSSE(streamId: string | null) {
       persistedLastEventId = id;
       const sessionId = store.getState().sessionId;
       if (sessionId) {
-        // Use smart merge instead of invalidateQueries to preserve older pages
-        refreshLatestMessages(sessionId, queryClient);
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(sessionId) });
       }
     });
 
@@ -640,32 +646,14 @@ export function useSSE(streamId: string | null) {
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
 
-      // DONE is the authoritative signal from the backend that generation
-      // has finished. Immediately transition the UI out of the "generating"
-      // state — do NOT wait for a DB refetch first. The old approach
-      // (await finishFromDatabase before finishGeneration) could leave the
-      // UI stuck in "thinking" if the DB query was slow or returned stale
-      // data, and was the root cause of the "forced finishGeneration via
-      // idle recovery" problem.
+      if (sessionId) {
+        await finishFromDatabase(sessionId);
+      }
+
       store.getState().finishGeneration();
       connectionStore.getState().setStatus("idle");
 
-      // Asynchronously refetch DB messages so the persisted AssistantMessage
-      // replaces the in-memory streaming state. The showStreamingFallback
-      // timer in message-list.tsx keeps StreamingMessage visible for up to
-      // 2 seconds, bridging the gap between finishGeneration and the DB
-      // data arriving in React Query cache.
-      if (sessionId) {
-        refreshLatestMessages(sessionId, queryClient);
-        // Delayed verification refetch — catches any React rendering race
-        // condition where the first refetch returned stale data.
-        setTimeout(() => {
-          refreshLatestMessages(sessionId, queryClient);
-        }, 500);
-        queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(sessionId) });
-      }
-
-      // Refetch sessions to pick up the title (set synchronously before DONE now)
+      // Refetch sessions to pick up the title
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
 
       client.close();
@@ -681,21 +669,15 @@ export function useSSE(streamId: string | null) {
       } else {
         toast.error(message);
       }
-      // Keep this as warn to avoid Next.js dev error overlay for expected business errors.
       console.warn("SSE agent error:", message);
       textBuffer.flush();
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
-      // AGENT_ERROR is a terminal signal — immediately end generation state.
-      // Don't block on DB refetch (same principle as DONE handler).
       store.getState().finishGeneration();
       connectionStore.getState().setStatus("idle");
-      // Asynchronously refetch DB messages for partial content persisted on error
+      // Invalidate DB messages for partial content persisted on error
       if (sessionId) {
-        refreshLatestMessages(sessionId, queryClient);
-        setTimeout(() => {
-          refreshLatestMessages(sessionId, queryClient);
-        }, 500);
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages.list(sessionId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.sessions.detail(sessionId) });
       }
       client.close();
@@ -731,25 +713,6 @@ export function useSSE(streamId: string | null) {
       const idleCheckTimer = setInterval(async () => {
         if (!store.getState().isGenerating) {
           clearInterval(idleCheckTimer);
-          return;
-        }
-        // Fast path: if the sidebar polling already knows this session has no
-        // active generation (activeSessionIds doesn't include it), the backend
-        // is done. Force finishGeneration immediately — don't wait for the
-        // timestamp-based idle check, which can be defeated by stale heartbeats.
-        const state = store.getState();
-        if (state.sessionId && !state.activeSessionIds.has(state.sessionId)) {
-          console.warn("SSE idle recovery: session no longer active, forcing finishGeneration");
-          try {
-            if (state.sessionId) {
-              await finishFromDatabase(state.sessionId);
-            }
-          } finally {
-            store.getState().finishGeneration();
-            connectionStore.getState().setStatus("idle");
-          }
-          clearInterval(idleCheckTimer);
-          client.close();
           return;
         }
         if (lastEventTimestamp > 0 && Date.now() - lastEventTimestamp > IDLE_RECOVERY_MS) {

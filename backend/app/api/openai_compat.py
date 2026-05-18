@@ -8,7 +8,6 @@ run_generation() pipeline used by the native chat API.
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import time
@@ -236,28 +235,6 @@ def _content_to_text(content: Any) -> str:
     return str(content) if content else ""
 
 
-def _on_task_done(task: asyncio.Task[None], *, job: GenerationJob) -> None:
-    """Ensure frontend never gets stuck — guarantees job.complete() on failure."""
-    if task.cancelled():
-        if not job.completed:
-            job.publish(SSEEvent(DONE, {
-                "session_id": job.session_id,
-                "finish_reason": "aborted",
-            }))
-            job.complete()
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error("OpenAI-compat generation failed %s: %s", task.get_name(), exc, exc_info=exc)
-        if not job.completed:
-            try:
-                job.publish(SSEEvent(AGENT_ERROR, {"error_message": "Internal error."}))
-            except Exception:
-                pass
-            finally:
-                job.complete()
-
-
 async def _run_with_semaphore(sm: StreamManager, job: GenerationJob, coro) -> None:
     try:
         await asyncio.wait_for(sm._semaphore.acquire(), timeout=30)
@@ -408,7 +385,6 @@ async def chat_completions(
         _run_with_semaphore(sm, job, coro),
         name=f"gen-oai-{stream_id}",
     )
-    task.add_done_callback(functools.partial(_on_task_done, job=job))
     job.task = task
 
     if body.stream:

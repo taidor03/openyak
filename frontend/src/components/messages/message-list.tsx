@@ -119,33 +119,6 @@ export function MessageList({
   const [canFetchOlderMessages, setCanFetchOlderMessages] = useState(false);
   const anchoredSessionRef = useRef<string | undefined>(undefined);
 
-  // Keep StreamingMessage visible briefly after generation finishes so the
-  // DB-fetched AssistantMessageGroup has time to render. Without this,
-  // there's a 1-frame blank flash between StreamingMessage unmounting and
-  // the DB messages mounting.
-  const wasGeneratingRef = useRef(false);
-  const prevMessageCountRef = useRef(messages?.length ?? 0);
-  const [showStreamingFallback, setShowStreamingFallback] = useState(false);
-
-  useEffect(() => {
-    if (isGenerating) {
-      wasGeneratingRef.current = true;
-      prevMessageCountRef.current = messages?.length ?? 0;
-      setShowStreamingFallback(false);
-    } else if (wasGeneratingRef.current) {
-      wasGeneratingRef.current = false;
-      setShowStreamingFallback(true);
-      const timer = setTimeout(() => setShowStreamingFallback(false), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [isGenerating, messages.length]);
-
-  useEffect(() => {
-    if (showStreamingFallback && (messages?.length ?? 0) > prevMessageCountRef.current) {
-      setShowStreamingFallback(false);
-    }
-  }, [messages.length, showStreamingFallback]);
-
   useEffect(() => {
     if (anchoredSessionRef.current === sessionId) return;
     anchoredSessionRef.current = sessionId;
@@ -457,7 +430,7 @@ export function MessageList({
 
             {/* Currently streaming message — kept visible briefly after
                 generation finishes so DB messages can mount first. */}
-            {(isGenerating || !!streamId || showStreamingFallback) && (
+            {(isGenerating || !!streamId) && (
               <div className="px-4 py-5">
                 <div className="mx-auto max-w-3xl xl:max-w-4xl">
                   <StreamingMessage

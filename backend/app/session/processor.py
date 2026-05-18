@@ -425,30 +425,9 @@ class SessionProcessor:
         job = sp.job
         session_factory = sp.session_factory
 
-        # --- Create assistant message + step-start part atomically ---
-        # The message row is created here (lazily) together with its first
-        # part in a single transaction. This guarantees that no empty
-        # assistant message can ever exist in the DB — if the process
-        # crashes before reaching this point, there is simply no message.
-        _msg_data = getattr(sp, "_assistant_msg_data", None) or {
-            "role": "assistant",
-            "agent": getattr(sp.agent, "name", None),
-            "model_id": sp.model_id,
-            "provider_id": getattr(sp.provider, "id", None),
-        }
+        # --- Create step-start part ---
         async with session_factory() as db:
             async with db.begin():
-                # Only create the message if it doesn't already exist in DB.
-                # On subsequent steps, a previous step may have already
-                # created it; we check first to avoid UniqueViolation.
-                existing = await db.get(Message, self._assistant_msg_id)
-                if existing is None:
-                    msg = Message(
-                        id=self._assistant_msg_id,
-                        session_id=job.session_id,
-                        data=_msg_data,
-                    )
-                    db.add(msg)
                 await create_part(
                     db,
                     message_id=self._assistant_msg_id,
@@ -1059,44 +1038,6 @@ class SessionProcessor:
                 has_tool_calls = False
 
         if has_tool_calls:
-            # If ALL tool calls were blocked by loop detection (no submissions),
-            # stop the loop — there's nothing useful for the LLM to continue with.
-            if not streaming_executor.has_submissions:
-                # Override finish_reason to "stop" so the frontend STEP_FINISH
-                # handler recognizes this as terminal and triggers its safety net.
-                self.finish_reason = "stop"
-                logger.info(
-                    "All tool calls blocked by loop detection for session %s, "
-                    "forcing stop (finish_reason='stop')",
-                    job.session_id,
-                )
-                # Emit STEP_FINISH with terminal reason so the frontend
-                # can detect completion even if DONE is delayed.
-                job.publish(
-                    SSEEvent(
-                        STEP_FINISH,
-                        {
-                            "tokens": self.usage_data,
-                            "cost": self.step_cost,
-                            "total_cost": sp.total_cost + self.step_cost,
-                            "reason": "stop",
-                        },
-                    )
-                )
-                async with session_factory() as db:
-                    async with db.begin():
-                        await create_part(
-                            db,
-                            message_id=self._assistant_msg_id,
-                            session_id=job.session_id,
-                            data={
-                                "type": "step-finish",
-                                "reason": "stop",
-                                "tokens": self.usage_data,
-                                "cost": self.step_cost,
-                            },
-                        )
-                return "stop"
 
             # === Collect results — concurrent tools already running, exclusive run now ===
             exec_results = await streaming_executor.collect()

@@ -34,7 +34,12 @@ export function useSaveMcpConfig() {
   return useMutation({
     mutationFn: (mcpServers: Record<string, McpServerConfig>) =>
       api.put<{ success: boolean; connectors: unknown }>(API.MCP.USER_CONFIG, { mcpServers }),
-    onSuccess: () => {
+    onSuccess: (_data, mcpServers) => {
+      // Immediately update the MCP config cache with the saved data
+      queryClient.setQueryData<McpUserConfig>(queryKeys.mcpConfig, {
+        mcpServers,
+      });
+      // Background refresh to sync with server truth
       queryClient.invalidateQueries({ queryKey: queryKeys.mcpConfig });
       queryClient.invalidateQueries({ queryKey: queryKeys.connectors });
       toast.success("MCP 配置已保存，连接器已热重载");

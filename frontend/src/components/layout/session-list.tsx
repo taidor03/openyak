@@ -40,7 +40,7 @@ export function SessionList() {
 
   // ── Poll /chat/active to track which sessions have running generations ──
   // This powers the pulsing indicator in the sidebar.
-  const activeSessionIds = useChatStore((s) => s.activeSessionIds);
+  const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -49,8 +49,7 @@ export function SessionList() {
       try {
         const jobs = await api.get<Array<{ stream_id: string; session_id: string }>>(API.CHAT.ACTIVE);
         if (!active) return;
-        const ids = new Set(jobs.map((j) => j.session_id));
-        useChatStore.getState().setActiveSessionIds(ids);
+        setActiveSessionIds(new Set(jobs.map((j) => j.session_id)));
       } catch {
         // Silently ignore — backend may be temporarily unreachable
       }
