@@ -220,11 +220,57 @@ Wiki 根路径按优先级解析：
 - 搜索功能
 - 重复检测与合并
 
-### 5.3 i18n
+### 5.3 编辑器工具栏双行布局
+
+编辑器工具栏（新建/编辑 Wiki 页面时显示）采用**双行布局**：
+
+- **第一行**：页面标题（「新建页面」/「编辑页面」）+ 目标选择器 + 编辑/预览切换 + 保存/取消操作
+- **第二行**：Title 输入框 + Category 下拉选择，独占整行宽度
+
+> **设计原因**：单行布局下 Title 输入框宽度不足，尤其对中文标题不够友好。将 Title 和 Category 移至第二行，Title 输入框使用 `flex-1 min-w-0` 占满可用宽度。
+
+```tsx
+{/* Editor toolbar — 双行布局 */}
+<div className="flex flex-col border-b border-[var(--border-primary)] bg-[var(--surface-tertiary)] shrink-0">
+  {/* Row 1: 标题 + 操作 */}
+  <div className="flex items-center justify-between px-4 py-2">
+    <div className="flex items-center gap-3 min-w-0">
+      <h2 className="text-xs font-semibold shrink-0">
+        {isEditingExisting ? t("editWikiPage") : t("newWikiPage")}
+      </h2>
+      {/* Editor target selector */}
+    </div>
+    <div className="flex items-center gap-1.5">
+      {/* Edit / Preview toggle + Save actions */}
+    </div>
+  </div>
+  {/* Row 2: Title & Category inputs — 独占整行宽度 */}
+  <div className="flex items-center gap-3 px-4 py-1.5 border-t border-[var(--border-primary)]">
+    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+      <label className="text-[10px] text-[var(--text-tertiary)] shrink-0">{t("title")}</label>
+      <input
+        type="text"
+        value={editTitle}
+        onChange={(e) => setEditTitle(e.target.value)}
+        className="flex-1 min-w-0 px-2 py-1 text-xs ..."
+        placeholder={t("pageTitlePlaceholder")}
+      />
+    </div>
+    <div className="flex items-center gap-1.5 shrink-0">
+      <label className="text-[10px] text-[var(--text-tertiary)] shrink-0">{t("category")}</label>
+      <select value={editCategory} onChange={...} className="...">
+        {CATEGORIES.map((cat) => <option key={cat} value={cat}>...</option>)}
+      </select>
+    </div>
+  </div>
+</div>
+```
+
+### 5.4 i18n
 
 - `frontend/src/i18n/locales/{en,zh}/common.json`：47 条知识中心翻译/语言
 
-### 5.4 侧边栏入口
+### 5.5 侧边栏入口
 
 `frontend/src/components/layout/sidebar-nav.tsx` 中 BookOpen 图标导航到 `/knowledge`
 
@@ -267,5 +313,6 @@ Wiki 根路径按优先级解析：
 - [ ] Wiki REST API（14 个端点）
 - [ ] 前端知识中心页面（全局/项目 Wiki 切换 + 分类导航 + CRUD + 搜索 + Markdown 预览）
 - [ ] 合并保存 / 覆盖保存双模式
+- [ ] **编辑器工具栏双行布局**：第一行标题+操作，第二行 Title 输入框 + Category 下拉选择（Title `flex-1 min-w-0` 占满宽度）
 - [ ] i18n 47 条知识中心翻译/语言
 - [ ] 侧边栏知识中心入口（BookOpen 图标）

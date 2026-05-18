@@ -33,6 +33,74 @@ const status = connector
 
 **关键点**: 当 `connector` 不存在时，`status` 应为 `"disconnected"` 而非 `"disabled"`，否则 StatusDot 会显示灰色误导用户。
 
+### 偏差3: mcp-servers.json 格式不兼容导致自定义 MCP 不显示
+
+**现象**: MCP 设置页面的自定义 MCP 列表为空，`mcp-servers.json` 中配置的服务器全部不显示。
+
+**根因**: `mcp-servers.json` 文件使用 Claude Desktop / Cursor 兼容的包裹格式 `{"mcpServers": {...}}`，但后端 `load_user_mcps` 直接返回了整个 JSON dict。`_register_user_mcps` 遍历 items 时，第一个 key 是 `"mcpServers"`，其值是嵌套的服务器集合而非单个配置，解析失败。
+
+此外还有两个子问题：
+- `mcp-servers.json` 使用 `env` 字段名（Claude Desktop 格式），后端代码处理的是 `environment`
+- `command` 字段为 `string[]` 数组格式（`["npx", "-y", "mcp-name"]`），前端类型定义为 `string`
+
+**修复**: 后端 `load_user_mcps` 自动解包 `mcpServers` 包裹层，`save_user_mcps` 保存时始终使用包裹格式；`_register_user_mcps` 和 `apply_user_mcps` 中将 `env` 转换为 `environment`；前端类型定义 `command` 改为 `string | string[]`。
+
+```python
+# backend/app/connector/registry.py
+
+async def load_user_mcps(self) -> dict[str, Any]:
+    """Supports two formats:
+      - Flat:      {"server-id": {...}, ...}
+      - Wrapped:   {"mcpServers": {"server-id": {...}, ...}}
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return {}
+    # Claude Desktop / Cursor format: {"mcpServers": {...}}
+    if "mcpServers" in data and isinstance(data["mcpServers"], dict):
+        return data["mcpServers"]
+    return data
+
+async def save_user_mcps(self, config: dict[str, Any]) -> None:
+    """Always writes in the {"mcpServers": {...}} wrapped format."""
+    wrapped = {"mcpServers": config}
+    path.write_text(json.dumps(wrapped, indent=2, ensure_ascii=False), encoding="utf-8")
+
+# In _register_user_mcps and apply_user_mcps:
+if "env" in local_cfg and "environment" not in local_cfg:
+    local_cfg["environment"] = local_cfg.pop("env")
+local_cfg["environment"] = _build_local_env(local_cfg.get("environment"))
+```
+
+```typescript
+// frontend/src/types/connectors.ts
+export interface McpServerConfig {
+  id?: string;
+  name?: string;
+  type: "remote" | "local";
+  url?: string;
+  command?: string | string[];  // string[] for Claude Desktop compat
+  args?: string[];             // when command is a string
+  enabled?: boolean;
+  headers?: Record<string, string>;
+  description?: string;
+  category?: string;
+  env?: Record<string, string>;        // Claude Desktop format
+  environment?: Record<string, string>; // OpenYak internal format
+}
+```
+
+```tsx
+// frontend/src/components/settings/mcp-tab.tsx — command display
+{isLocal && config.command && (
+  <p className="text-xs text-[var(--text-tertiary)] mt-0.5 font-mono truncate">
+    {Array.isArray(config.command)
+      ? config.command.join(" ")
+      : [config.command, ...(config.args || [])].join(" ")}
+  </p>
+)}
+```
+
 ### 偏差2: MCP 管理页交互方式丢失
 
 **现象**: 03 定制实施后 MCP 标签页被简化，丢失了 git `7ac0fab`/`4ac128b` 原有的交互方式：内置 MCP 区域消失、Dialog 弹窗编辑变为内联表单、Badge 视觉元素缺失。
@@ -57,10 +125,9 @@ export function McpTab() {
     <div className="space-y-8">
       {/* 内置 MCPs */}
       <section>
-        <h2>内置搜索 MCP</h2>
-        <p>零配置、无需 API Key 的内置搜索工具。本地工具需要系统已安装 Node.js。</p>
+        <h2>内置MCP</h2>
         {builtinMcps.length === 0 ? (
-          <div><WifiOff /> 暂无内置 MCP（后端启动中...）</div>
+          <div><WifiOff /> 暂无内置 MCP</div>
         ) : (
           <div className="rounded-lg border divide-y">
             {builtinMcps.map(([id, connector]) => (
@@ -202,14 +269,18 @@ export function useUpdateMcpConfig(): UseMutationResult
 
 ```typescript
 export interface McpServerConfig {
-  id: string;
-  name: string;
+  id?: string;
+  name?: string;
   type: "remote" | "local";
   url?: string;           // remote 类型
-  command?: string;       // local stdio 类型
-  args?: string[];        // local stdio 参数
-  enabled: boolean;
+  command?: string | string[];  // local stdio 类型（string[] 为 Claude Desktop 兼容格式）
+  args?: string[];        // local stdio 参数（当 command 为 string 时）
+  enabled?: boolean;
   headers?: Record<string, string>;
+  description?: string;
+  category?: string;
+  env?: Record<string, string>;        // Claude Desktop 格式
+  environment?: Record<string, string>; // OpenYak 内部格式
 }
 ```
 
@@ -225,16 +296,30 @@ export interface McpServerConfig {
 
 ```python
 async def load_user_mcps(self) -> dict:
-    """Load user MCP config from .openyak/mcp-servers.json"""
+    """Load user MCP config from .openyak/mcp-servers.json
+
+    Supports two formats:
+      - Flat:      {"server-id": {...}, ...}
+      - Wrapped:   {"mcpServers": {"server-id": {...}, ...}}
+        (Claude Desktop / Cursor compatible)
+    """
 
 async def save_user_mcps(self, config: dict) -> None:
-    """Save user MCP config to .openyak/mcp-servers.json"""
+    """Save to .openyak/mcp-servers.json
 
-async def register_user_mcps(self) -> None:
-    """Register all user-configured MCP servers"""
+    Always writes in the {"mcpServers": {...}} wrapped format
+    so the file is compatible with Claude Desktop / Cursor.
+    """
+
+async def _register_user_mcps(self) -> None:
+    """Register user-config MCPs on cold start.
+    Normalises "env" (Claude Desktop) → "environment" (OpenYak internal).
+    """
 
 async def apply_user_mcps(self, new_config: dict) -> None:
-    """Hot-reload user MCPs: disconnect old ones, register new ones, reconnect enabled."""
+    """Hot-reload user MCPs: disconnect old ones, register new ones, reconnect enabled.
+    Normalises "env" → "environment" for local stdio servers.
+    """
 ```
 
 ### 3.2 热重载完整逻辑
@@ -385,6 +470,41 @@ class ConnectorInfo:
 
 `McpManager` 对 `no_auth_required=True` 的连接器跳过 `needs_auth` 状态提升。
 
+> **偏差修正**：初版实施时虽然在 `ConnectorInfo` 模型和 `McpManager._config` 中写入了 `no_auth_required` 标志，但遗漏了修改 `McpManager.startup()` 和 `reconnect()` 方法来读取此标志。当远程 MCP 服务器（如使用 headers 传递 API key 的 `web-search`）连接失败时，`McpManager` 无条件标记为 `needs_auth`（黄点），即使该服务器不需要 OAuth 认证。
+>
+> 修正代码（`backend/app/mcp/manager.py`）：
+> ```python
+> # startup() 和 reconnect() 中的 needs_auth 判断增加 no_auth_required 检查
+> if (
+>     client.status == "failed"
+>     and client.server_type != "local"
+>     and not client._oauth_token
+>     and not config.get("no_auth_required", False)  # ← 新增条件
+> ):
+>     client.status = "needs_auth"
+>     client.error = None
+> ```
+
+> **偏差修正2**：初版实施时在 `main.py` 中为了实现 MCP 后台连接（不阻塞 HTTP 就绪），错误地重新创建了 `ConnectorRegistry` 实例，导致之前通过 `register_from_plugin()` 从插件 `.mcp.json` 注册的所有 `source=builtin` 连接器（Slack/Notion/GitHub/Datadog/Figma/Canva/BigQuery/Google Workspace）全部丢失。只有 `source=user-config` 的连接器（来自 `mcp-servers.json`）在 `startup()` 中被恢复。插件页面链接器 Tab 过滤掉 `user-config` 后，一个链接器都不显示。
+
+> **偏差修正3**：初版实施时 `ConnectorInfo` 模型没有 `headers` 字段，且 `startup()` 构建 `mcp_config` 时对 remote 类型只传 `type/url/enabled`，丢失了 `headers` 和 `no_auth_required`。导致远程 MCP 服务器（如 `web-search`，使用 `headers.Authorization` 传递 Bearer API key）在冷启动时无法认证，连接失败。
+>
+> 修正内容：
+> - `ConnectorInfo` 新增 `headers: dict[str, str]` 字段
+> - `_register_user_mcps` 和 `apply_user_mcps` 中创建 `ConnectorInfo` 时传入 `headers`
+> - `startup()` 构建 `mcp_config` 时传递 `headers` 和 `no_auth_required`
+> - 前端 `ConnectorInfo` 类型新增 `headers?: Record<string, string>`
+>
+> 修正代码（`backend/app/main.py`）：
+> ```python
+> # 错误：重新创建空的 ConnectorRegistry，丢失插件注册的连接器
+> # connector_registry = ConnectorRegistry(project_dir=settings.project_dir)
+>
+> # 正确：使用已有的 registry 实例（已包含 register_from_plugin 注册的连接器）
+> app.state.connector_registry = connector_registry
+> set_connector_registry(connector_registry)
+> ```
+
 ---
 
 ## 七、连接器标签页过滤
@@ -400,6 +520,7 @@ class ConnectorInfo:
 | 常量 | 值 | 文件 |
 |------|-----|------|
 | 用户配置文件路径 | `.openyak/mcp-servers.json` | `backend/app/connector/registry.py` |
+| 配置文件格式 | `{"mcpServers": {...}}` (Claude Desktop 兼容) | `backend/app/connector/registry.py` |
 | `_NODE_EXTRA_PATHS` | 5 个 Node.js 路径 | `backend/app/connector/registry.py` |
 
 ---
@@ -408,10 +529,11 @@ class ConnectorInfo:
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `backend/app/connector/registry.py` | 修改 | 用户配置、热重载、headers、PATH 注入、_NODE_EXTRA_PATHS |
-| `backend/app/connector/model.py` | 修改 | no_auth_required + source 字段 |
+| `backend/app/connector/registry.py` | 修改 | 用户配置、热重载、headers、PATH 注入、_NODE_EXTRA_PATHS、mcpServers 解包、env→environment 转换 |
+| `backend/app/connector/model.py` | 修改 | no_auth_required + headers + source 字段 |
+| `backend/app/mcp/manager.py` | 修改 | startup/reconnect 中 needs_auth 判断增加 no_auth_required 检查 |
 | `backend/app/api/mcp.py` | 修改 | user-config API 端点 |
-| `backend/app/main.py` | 修改 | MCP 启动逻辑、后台任务 |
+| `backend/app/main.py` | 修改 | MCP 启动逻辑、后台任务、**[偏差修复]** 不重新创建 ConnectorRegistry |
 | `frontend/src/components/settings/mcp-tab.tsx` | 新增 | MCP 管理页面（内置 MCP 区域 + Dialog 弹窗 + Badge 视觉 + CustomMcpSection） |
 | `frontend/src/hooks/use-mcp-config.ts` | 新增 | MCP 配置 Hook |
 | `frontend/src/types/connectors.ts` | 修改 | McpServerConfig 类型 |
@@ -430,16 +552,25 @@ class ConnectorInfo:
 - [ ] **CustomMcpSection**：空状态虚线边框 + 点击添加、列表 divide-y 布局、通过 McpEntryDialog 弹窗完成添加/编辑
 - [ ] **API 适配**：`useMcpConfig` 返回 `{ config: ... }` 格式，`useUpdateMcpConfig` 发送 `{ config: ... }` 格式
 - [ ] `McpServerConfig` 类型含 `headers` 字段
+- [ ] **[偏差修复]** `McpServerConfig.command` 类型为 `string | string[]`（兼容 Claude Desktop 数组格式）
+- [ ] **[偏差修复]** `McpServerConfig` 新增 `env` 字段（Claude Desktop 格式），`id`/`name`/`enabled` 改为可选
 - [ ] 后端 `load/save/register/apply_user_mcps` 方法
+- [ ] **[偏差修复]** `load_user_mcps` 自动解包 `mcpServers` 包裹格式（兼容 Claude Desktop / Cursor）
+- [ ] **[偏差修复]** `save_user_mcps` 保存时始终使用 `{"mcpServers": {...}}` 包裹格式
+- [ ] **[偏差修复]** `_register_user_mcps` 和 `apply_user_mcps` 中 `env` → `environment` 字段名转换
+- [ ] **[偏差修复]** `CustomMcpRow` command 显示兼容数组格式（`Array.isArray(command) ? command.join(" ") : ...`）
 - [ ] 配置持久化到 `.openyak/mcp-servers.json`
 - [ ] 热重载流程：断旧→注册新→重连→sync_tools
 - [ ] `GET/PUT /api/mcp/user-config` API 端点
 - [ ] MCP 连接异步化（`asyncio.create_task`，不阻塞 HTTP 就绪）
+- [ ] **[偏差修复]** `main.py` 中不要重新创建 `ConnectorRegistry`，否则丢失插件注册的连接器
 - [ ] `sync_tools()` 动态工具注册
 - [ ] 插件标签页过滤 `user-config` 来源（不过滤 `builtin`，保留 OAuth 服务集成连接器）
 - [ ] **[偏差修复]** 插件页 ConnectorsTab 仅过滤 `user-config` 来源，保留 `builtin`（Slack/Notion/GitHub 等）
 - [ ] `_build_local_env()` PATH 注入（5 个 Node.js 目录 + os.environ 基底）
 - [ ] `ConnectorInfo.no_auth_required` 字段
+- [ ] `ConnectorInfo.headers` 字段（remote 类型 MCP 的 HTTP headers，如 Bearer Token）
+- [ ] **[偏差修复]** `McpManager.startup()` 和 `reconnect()` 中 `needs_auth` 判断增加 `no_auth_required` 检查
 - [ ] `ConnectorInfo.source` 字段（"builtin" | "user-config"）
 - [ ] **[偏差修复]** `CustomMcpRow` Switch 不依赖 connector 存在，冷启动时从配置推断 enabled 状态
 - [ ] **[偏差修复]** connector undefined 时 status 为 "disconnected" 非 "disabled"
