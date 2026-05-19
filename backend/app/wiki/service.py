@@ -18,6 +18,7 @@ from app.wiki.cleanup import (
     build_deleted_keys,
     clean_index_listing,
     extract_frontmatter_title,
+    merge_frontmatter,
     merge_sections,
     normalize_wiki_ref_key,
     parse_sections,
@@ -25,7 +26,18 @@ from app.wiki.cleanup import (
 )
 from app.wiki.filename import make_query_filename
 from app.wiki.resolver import resolve_wiki_page, unwrap_wikilink
-from app.wiki.search import SearchResult, search_wiki
+from app.wiki.graph import WikiGraph, build_wiki_graph
+from app.wiki.lint import lint_wiki as _lint_wiki
+from app.wiki.review import ReviewItem, ReviewStore, generate_review_items_from_lint
+from app.wiki.ingest_queue import IngestQueue
+from app.wiki.cascade import cascade_delete, find_cascade_targets
+from app.wiki.review_sweep import sweep_rules, sweep_semantic
+from app.wiki.vector_store import VectorStore, search_with_rrf
+from app.wiki.contradiction import find_contradiction_candidates, generate_contradiction_prompt
+from app.wiki.dedup import find_duplicates
+from app.wiki.watcher import start_watcher, stop_watcher, get_watcher_status, get_all_watcher_statuses
+from app.wiki.sanitize import sanitize_wiki_content
+from app.wiki.search import SearchResult, invalidate_search_cache, search_wiki
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +62,7 @@ def _extract_frontmatter_field(text: str, field: str) -> str | None:
     return None
 
 
-# Default category subdirectories created on init
-DEFAULT_CATEGORIES = [
-    "entities",
-    "concepts",
-    "sources",
-    "synthesis",
-    "comparison",
-    "queries",
-]
+from app.wiki.constants import DEFAULT_CATEGORIES
 
 # Default index.md content
 _DEFAULT_INDEX = """# Knowledge Index
@@ -310,12 +314,16 @@ class WikiService:
                 f"sources: {existing_sources}\n"
                 "---\n\n"
             )
-            full_content = frontmatter + content
+            # Sanitize LLM output before writing
+            cleaned_content = sanitize_wiki_content(content)
+            full_content = frontmatter + cleaned_content
             existing_path.write_text(full_content, encoding="utf-8")
 
             slug = existing_path.stem
             await WikiService._update_index(wiki_root, title, slug, category)
             await WikiService.append_log(wiki_root, _log_action or "update", title, category)
+
+            invalidate_search_cache(wiki_root)
 
             return {
                 "page_id": slug,
@@ -340,7 +348,9 @@ class WikiService:
             "---\n\n"
         )
 
-        full_content = frontmatter + content
+        # Sanitize LLM output before writing
+        cleaned_content = sanitize_wiki_content(content)
+        full_content = frontmatter + cleaned_content
 
         # Write the file
         file_path = cat_dir / fn_info.filename
@@ -349,6 +359,7 @@ class WikiService:
         # Update index.md
         await WikiService._update_index(wiki_root, title, fn_info.slug, category)
         await WikiService.append_log(wiki_root, _log_action or "create", title, category)
+        invalidate_search_cache(wiki_root)
 
         return {
             "page_id": fn_info.slug,
@@ -361,6 +372,37 @@ class WikiService:
         }
 
     @staticmethod
+    def _backup_page(wiki_root: str, page_path: Path, page_id: str) -> Path | None:
+        """Create a backup of a wiki page before merge.
+
+        Backups are stored in ``<wiki_root>/.history/<page_id>/`` with
+        ISO-timestamp filenames.  At most 10 backups are kept per page;
+        oldest are pruned automatically.
+        """
+        history_dir = Path(wiki_root) / ".history" / page_id
+        history_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now(timezone.utc)
+        backup_name = f"{now.strftime('%Y%m%dT%H%M%SZ')}.md"
+        backup_path = history_dir / backup_name
+
+        try:
+            import shutil
+            shutil.copy2(page_path, backup_path)
+        except OSError as exc:
+            logger.warning("Failed to create backup for page %s: %s", page_id, exc)
+            return None
+
+        # Prune old backups — keep at most 10
+        try:
+            backups = sorted(history_dir.glob("*.md"), reverse=True)
+            for old_backup in backups[10:]:
+                old_backup.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        return backup_path
+
     async def merge_page(
         wiki_root: str,
         title: str,
@@ -373,6 +415,15 @@ class WikiService:
         without a match are appended.  The preamble (content before the
         first ``##``) is always preserved from the existing page.
 
+        Safety features:
+        - Backup: the existing page is backed up to ``.history/<page_id>/``
+          before any changes are written.
+        - Locked fields: ``title``, ``category``, and ``type`` in frontmatter
+          are never overwritten by the incoming data (Layer 3 lock).
+        - Body length guard: if the merged body is significantly shorter
+          than the original (>= 50% reduction), the merge is aborted to
+          prevent accidental content loss.
+
         If no existing page is found, falls back to ``write_page`` (create).
         """
         existing = await WikiService.find_page_by_title(wiki_root, title, category)
@@ -382,41 +433,62 @@ class WikiService:
                 wiki_root, title, new_sections, category, force=True
             )
 
+        existing_path = Path(existing["path"])
+
         # Extract body (strip frontmatter)
         existing_body = re.sub(r"^---\n[\s\S]*?---\n", "", existing["content"])
+
+        # Extract existing frontmatter body (between --- markers)
+        fm_match = re.match(r"^---\n([\s\S]*?)---\n", existing["content"])
+        existing_fm_body = fm_match.group(1) if fm_match else ""
 
         # Merge sections
         merged_body = merge_sections(existing_body, new_sections)
 
-        # Rebuild the full page with preserved frontmatter
-        existing_path = Path(existing["path"])
-        existing_created = _extract_frontmatter_field(existing["content"], "created")
-        existing_related = _extract_frontmatter_field(existing["content"], "related") or "[]"
-        existing_sources = _extract_frontmatter_field(existing["content"], "sources") or "[]"
+        # Body length guard — prevent accidental content truncation
+        orig_len = len(existing_body.strip())
+        merged_len = len(merged_body.strip())
+        if orig_len > 100 and merged_len < orig_len * 0.5:
+            logger.warning(
+                "Merge aborted for '%s': merged body is %.0f%% of original "
+                "(%d → %d chars). This may indicate a truncation issue.",
+                title, (merged_len / orig_len * 100) if orig_len else 0,
+                orig_len, merged_len,
+            )
+            return {
+                "page_id": existing_path.stem,
+                "title": title,
+                "merged": False,
+                "error": (
+                    f"Merge aborted: merged body is too short "
+                    f"({merged_len} vs {orig_len} chars). "
+                    f"Possible content truncation detected."
+                ),
+            }
+
+        # Merge frontmatter using three-layer strategy
         now = datetime.now(timezone.utc)
         iso_now = now.isoformat()
-
-        created_line = (
-            f"created: {existing_created}\n" if existing_created
-            else f"created: {iso_now}\n"
-        )
-        frontmatter = (
-            "---\n"
+        new_fm_body = (
             f"title: {title}\n"
             f"category: {category}\n"
-            + created_line
-            + f"updated: {iso_now}\n"
-            f"related: {existing_related}\n"
-            f"sources: {existing_sources}\n"
-            "---\n\n"
+            f"updated: {iso_now}\n"
         )
+        merged_fm = merge_frontmatter(existing_fm_body, new_fm_body)
 
+        frontmatter = f"---\n{merged_fm}\n---\n\n"
         full_content = frontmatter + merged_body
+
+        # Backup existing page before writing
+        backup_path = WikiService._backup_page(wiki_root, existing_path, existing_path.stem)
+
+        # Write merged content
         existing_path.write_text(full_content, encoding="utf-8")
 
         slug = existing_path.stem
         await WikiService._update_index(wiki_root, title, slug, category)
         await WikiService.append_log(wiki_root, "merge", title, category)
+        invalidate_search_cache(wiki_root)
 
         return {
             "page_id": slug,
@@ -425,6 +497,7 @@ class WikiService:
             "category": category,
             "path": str(existing_path),
             "merged": True,
+            "backup": str(backup_path) if backup_path else None,
         }
 
     @staticmethod
@@ -512,6 +585,7 @@ class WikiService:
                 except OSError:
                     continue
 
+        invalidate_search_cache(wiki_root)
         return True
 
     @staticmethod
@@ -748,131 +822,378 @@ class WikiService:
     @staticmethod
     async def lint_wiki(
         wiki_root: str,
-        scope: str = "full",
+        scope: str = "structural",
     ) -> dict[str, Any]:
         """Check the wiki for health issues.
 
-        Scans for: orphans (no incoming links), broken wikilinks
-        (referenced but no page exists), stale pages (not updated
-        in N days), and empty categories.
+        Supports two scopes:
+        - "structural": Pure code checks (orphans, broken links, no-outlinks).
+          This is the default and requires no LLM.
+        - "full": Structural + semantic checks. Semantic lint requires LLM
+          access and is only available when called from the tool layer.
+        - "semantic": LLM-driven checks only (contradictions, stale, etc.)
 
         Returns a dict with issues found, grouped by severity.
         """
-        root = Path(wiki_root)
-        if not root.is_dir():
-            return {"issues": [], "total_issues": 0, "healthy": True}
+        # Delegate to the lint module (no LLM callable by default)
+        return await _lint_wiki(wiki_root, scope=scope)
 
-        issues: list[dict[str, Any]] = []
-        broken_links: list[dict[str, str]] = []
+    # ------------------------------------------------------------------
+    # Phase 4: Knowledge Graph
+    # ------------------------------------------------------------------
 
-        _WIKILINK_RE = re.compile(r"\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]")
-        stale_threshold_days = 30
-        now = datetime.now(timezone.utc)
+    @staticmethod
+    async def get_graph(wiki_root: str) -> dict[str, Any]:
+        """Build and return the knowledge graph.
 
-        # ── Phase 1: collect all pages + their content in one pass ────
-        # We store the content so Phase 2 can scan wikilinks without
-        # re-reading files.
-        all_pages: dict[str, dict[str, str]] = {}  # normalized_key -> info
-        page_contents: list[tuple[dict[str, str], str]] = []  # [(info, content)]
+        Returns nodes, edges, communities, and insights.
+        """
+        graph = build_wiki_graph(wiki_root)
+        return {
+            "nodes": graph.nodes,
+            "edges": graph.edges,
+            "communities": graph.communities,
+            "insights": graph.insights,
+            "stats": graph.stats,
+        }
 
-        for cat in DEFAULT_CATEGORIES:
-            cat_dir = root / cat
-            if not cat_dir.is_dir():
-                continue
+    # ------------------------------------------------------------------
+    # Phase 5: Review Items
+    # ------------------------------------------------------------------
 
-            cat_files = list(cat_dir.glob("*.md"))
-            if not cat_files:
-                issues.append({
-                    "type": "empty_category",
-                    "severity": "info",
-                    "category": cat,
-                    "message": f"Category '{cat}' is empty",
-                })
-                continue
+    @staticmethod
+    async def get_review_items(wiki_root: str) -> dict[str, Any]:
+        """Get review items generated from the latest lint scan.
 
-            for md_file in cat_files:
-                try:
-                    content = md_file.read_text(encoding="utf-8")
-                except OSError:
-                    continue
+        Runs a structural lint scan first, then converts the issues into
+        actionable Review Items.  Merges with any previously stored items
+        (preserving resolved/skipped status).
+        """
+        store = ReviewStore(wiki_root)
 
-                title = extract_frontmatter_title(content)
-                if not title:
-                    title = md_file.stem.replace("-", " ")
-                key = normalize_wiki_ref_key(title)
-                info = {
-                    "title": title,
-                    "category": cat,
-                    "page_id": md_file.stem,
-                }
-                all_pages[key] = info
-                page_contents.append((info, content))
+        # Run structural lint to get fresh issues
+        lint_result = await _lint_wiki(wiki_root, scope="structural")
+        new_items = generate_review_items_from_lint(wiki_root, lint_result)
 
-        # ── Phase 2: scan wikilinks + staleness in one pass over cache ──
-        incoming: dict[str, int] = {}
+        # Build a lookup of existing items by (type, title) to avoid duplicates
+        existing_lookup: dict[str, ReviewItem] = {}
+        for item in store.list_items():
+            key = f"{item.type}:{item.title}"
+            existing_lookup[key] = item
 
-        for info, content in page_contents:
-            # Scan wikilinks
-            for m in _WIKILINK_RE.finditer(content):
-                target = m.group(1).strip()
-                target_key = normalize_wiki_ref_key(target)
-                incoming[target_key] = incoming.get(target_key, 0) + 1
-                if target_key not in all_pages:
-                    broken_links.append({
-                        "source": info["title"],
-                        "target": target,
-                        "type": "broken_wikilink",
-                        "severity": "warning",
-                        "message": f"Page '{info['title']}' links to '{target}' which does not exist",
-                    })
+        # Add new items that don't already exist
+        added = 0
+        for item in new_items:
+            key = f"{item.type}:{item.title}"
+            if key not in existing_lookup:
+                store.add_item(item)
+                added += 1
 
-            # Check staleness
-            updated_str = _extract_frontmatter_field(content, "updated")
-            if updated_str:
-                try:
-                    updated_dt = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
-                    days_old = (now - updated_dt).days
-                    if days_old > stale_threshold_days:
-                        issues.append({
-                            "type": "stale",
-                            "severity": "info",
-                            "page_id": info["page_id"],
-                            "title": info["title"],
-                            "category": info["category"],
-                            "days_old": days_old,
-                            "message": f"Page '{info['title']}' not updated in {days_old} days",
-                        })
-                except (ValueError, TypeError):
-                    pass
+        # Clean up resolved items older than 7 days
+        store.clear_resolved()
 
-        # Find orphans (pages with no incoming links)
-        for key, info in all_pages.items():
-            link_count = incoming.get(key, 0)
-            if link_count == 0:
-                issues.append({
-                    "type": "orphan",
-                    "severity": "info",
-                    "page_id": info["page_id"],
-                    "title": info["title"],
-                    "category": info["category"],
-                    "message": f"Page '{info['title']}' has no incoming links",
-                })
-
-        # Combine all issues
-        all_issues = issues + broken_links
-        total = len(all_issues)
-        warnings = sum(1 for i in all_issues if i.get("severity") == "warning")
+        all_items = store.list_items()
+        open_items = [i for i in all_items if i.status == "open"]
+        resolved_items = [i for i in all_items if i.status in ("resolved", "skipped")]
 
         return {
-            "issues": all_issues,
-            "total_issues": total,
-            "warnings": warnings,
-            "healthy": total == 0,
-            "pages_checked": len(all_pages),
-            "summary": {
-                "orphans": sum(1 for i in issues if i.get("type") == "orphan"),
-                "broken_links": len(broken_links),
-                "stale": sum(1 for i in issues if i.get("type") == "stale"),
-                "empty_categories": sum(1 for i in issues if i.get("type") == "empty_category"),
-            },
+            "items": [i.to_dict() for i in all_items],
+            "total": len(all_items),
+            "open": len(open_items),
+            "resolved": len(resolved_items),
+            "newly_added": added,
+            "warnings": sum(1 for i in open_items if i.severity == "warning"),
         }
+
+    @staticmethod
+    async def resolve_review_item(wiki_root: str, item_id: str) -> bool:
+        """Mark a review item as resolved."""
+        store = ReviewStore(wiki_root)
+        return store.resolve_item(item_id)
+
+    # ------------------------------------------------------------------
+    # Phase 6: Ingest Queue
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def enqueue_ingest(
+        wiki_root: str,
+        source_name: str,
+        content: str,
+        purpose: str = "general",
+    ) -> dict[str, Any]:
+        """Enqueue an ingest job for asynchronous processing."""
+        queue = IngestQueue(wiki_root)
+        job = queue.enqueue(source_name, content, purpose=purpose)
+        return {"job_id": job.id, "status": job.status, **job.to_dict()}
+
+    @staticmethod
+    async def get_ingest_queue(wiki_root: str) -> dict[str, Any]:
+        """Get the current ingest queue status."""
+        queue = IngestQueue(wiki_root)
+        jobs = queue.list_jobs()
+        stats = queue.stats
+        # Don't include full content in listing (too large)
+        job_summaries = []
+        for j in jobs:
+            d = j.to_dict()
+            d.pop("content", None)
+            job_summaries.append(d)
+        return {
+            "jobs": job_summaries,
+            "stats": stats,
+            "total": len(jobs),
+        }
+
+    @staticmethod
+    async def process_ingest_queue(wiki_root: str) -> dict[str, Any]:
+        """Process all pending jobs in the ingest queue.
+
+        Returns a summary of processed jobs. When the queue is fully drained
+        (no pending or processing jobs remain), a "queue_drained" log entry
+        is appended and the search cache is invalidated — matching the
+        llm_wiki queue-drain callback pattern.
+        """
+        queue = IngestQueue(wiki_root)
+        processed = 0
+        failed = 0
+
+        while True:
+            job = queue.dequeue()
+            if job is None:
+                break
+
+            try:
+                result = await WikiService.ingest_source(
+                    wiki_root, job.source_name, job.content, purpose=job.purpose,
+                )
+                queue.mark_done(job.id, result=result)
+                processed += 1
+            except Exception as exc:
+                queue.mark_failed(job.id, str(exc))
+                failed += 1
+
+        # Queue-drain callback: log + cache invalidation
+        if processed > 0 or failed > 0:
+            invalidate_search_cache(wiki_root)
+            if queue.is_drained():
+                await WikiService.append_log(wiki_root, "queue_drained", f"{processed} processed, {failed} failed", "system")
+                logger.info("Ingest queue drained: %d processed, %d failed", processed, failed)
+
+        return {"processed": processed, "failed": failed, "drained": queue.is_drained()}
+
+    @staticmethod
+    async def retry_ingest_job(wiki_root: str, job_id: str) -> bool:
+        """Retry a failed ingest job."""
+        queue = IngestQueue(wiki_root)
+        return queue.retry_failed(job_id)
+
+    # ------------------------------------------------------------------
+    # Phase 7: Cascade Delete + Review Sweep
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def delete_page_cascade(wiki_root: str, page_id: str) -> dict[str, Any]:
+        """Delete a page with cascade cleanup of references.
+
+        Returns a detailed report of what was cleaned up.
+        """
+        result = cascade_delete(wiki_root, page_id)
+        invalidate_search_cache(wiki_root)
+        return result
+
+    @staticmethod
+    async def get_cascade_targets(wiki_root: str, page_id: str) -> dict[str, Any]:
+        """Preview what would be affected by cascade deletion (no changes made)."""
+        return find_cascade_targets(wiki_root, page_id)
+
+    @staticmethod
+    async def run_review_sweep(
+        wiki_root: str,
+        phase: str = "rules",
+        llm_call_fn: Any = None,
+    ) -> dict[str, Any]:
+        """Run review sweep cleanup.
+
+        phase: "rules" for rule-based only, "semantic" for LLM-driven, "full" for both.
+        llm_call_fn: Async callable for LLM inference (required for semantic phase).
+        """
+        results: dict[str, Any] = {}
+
+        if phase in ("rules", "full"):
+            results["rules"] = sweep_rules(wiki_root)
+
+        if phase in ("semantic", "full"):
+            results["semantic"] = await sweep_semantic(wiki_root, llm_call_fn=llm_call_fn)
+
+        invalidate_search_cache(wiki_root)
+        return results
+
+    # ------------------------------------------------------------------
+    # Phase 8: Vector Search + Contradiction Detection + Dedup
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def rebuild_vector_index(
+        wiki_root: str,
+        *,
+        ollama_base_url: str | None = None,
+        openai_api_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Rebuild the vector index for all wiki pages."""
+        store = VectorStore(wiki_root)
+        root = Path(wiki_root)
+        indexed = 0
+        failed = 0
+
+        for cat_dir in root.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            for md_file in cat_dir.glob("*.md"):
+                try:
+                    content = md_file.read_text(encoding="utf-8")
+                    success = await store.index_page(
+                        md_file.stem, content, cat_dir.name,
+                        ollama_base_url=ollama_base_url,
+                        openai_api_key=openai_api_key,
+                    )
+                    if success:
+                        indexed += 1
+                    else:
+                        failed += 1
+                except OSError:
+                    failed += 1
+
+        return {"indexed": indexed, "failed": failed, "total": store.indexed_count}
+
+    @staticmethod
+    async def semantic_search(
+        wiki_root: str,
+        query: str,
+        max_results: int = 20,
+        *,
+        ollama_base_url: str | None = None,
+        openai_api_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Semantic search using vector similarity."""
+        from app.wiki.embedding import get_embedding
+
+        query_embedding = await get_embedding(
+            query,
+            ollama_base_url=ollama_base_url,
+            openai_api_key=openai_api_key,
+        )
+        if query_embedding is None:
+            return {"results": [], "mode": "semantic", "error": "No embedding backend available"}
+
+        store = VectorStore(wiki_root)
+        results = store.search_similar(query_embedding, top_k=max_results)
+        return {"results": results, "mode": "semantic", "count": len(results)}
+
+    @staticmethod
+    async def hybrid_search(
+        wiki_root: str,
+        query: str,
+        max_results: int = 20,
+        *,
+        ollama_base_url: str | None = None,
+        openai_api_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Hybrid search using RRF fusion of token + vector results."""
+        from app.wiki.embedding import get_embedding
+
+        # Token search
+        token_results = search_wiki(wiki_root, query, max_results=max_results)
+        token_dicts = [
+            {"page_id": r.page_id, "title": r.title, "category": r.category, "score": r.score}
+            for r in token_results
+        ]
+
+        # Vector search
+        query_embedding = await get_embedding(
+            query,
+            ollama_base_url=ollama_base_url,
+            openai_api_key=openai_api_key,
+        )
+
+        if query_embedding is None:
+            # Fallback to token-only
+            return {"results": token_dicts, "mode": "token-only", "count": len(token_dicts)}
+
+        store = VectorStore(wiki_root)
+        vector_results = store.search_similar(query_embedding, top_k=max_results)
+
+        # RRF fusion
+        merged = search_with_rrf(token_dicts, vector_results)
+        return {"results": merged[:max_results], "mode": "hybrid", "count": len(merged[:max_results])}
+
+    @staticmethod
+    def get_contradiction_candidates(wiki_root: str) -> list[tuple[str, str, float]]:
+        """Find page pairs that might contain contradictions."""
+        return find_contradiction_candidates(wiki_root)
+
+    @staticmethod
+    def get_contradiction_prompt(page_a_id: str, page_b_id: str, wiki_root: str) -> str | None:
+        """Generate an LLM prompt for contradiction detection between two pages."""
+        root = Path(wiki_root)
+        content_a = None
+        content_b = None
+        title_a = page_a_id
+        title_b = page_b_id
+
+        for cat_dir in root.iterdir():
+            if not cat_dir.is_dir():
+                continue
+            for md_file in cat_dir.glob("*.md"):
+                if md_file.stem == page_a_id:
+                    try:
+                        content_a = md_file.read_text(encoding="utf-8")
+                        title_a = extract_frontmatter_title(content_a) or page_a_id
+                    except OSError:
+                        pass
+                elif md_file.stem == page_b_id:
+                    try:
+                        content_b = md_file.read_text(encoding="utf-8")
+                        title_b = extract_frontmatter_title(content_b) or page_b_id
+                    except OSError:
+                        pass
+
+        if content_a is None or content_b is None:
+            return None
+
+        return generate_contradiction_prompt(title_a, content_a, title_b, content_b)
+
+    @staticmethod
+    def find_duplicate_pages(
+        wiki_root: str,
+        *,
+        include_semantic: bool = False,
+    ) -> dict[str, Any]:
+        """Find duplicate wiki pages using content hashing, trigram similarity,
+        and optionally vector similarity (semantic dedup).
+
+        Args:
+            wiki_root: Path to the wiki root directory.
+            include_semantic: If True, also run Level 3 semantic dedup.
+                Defaults to False (expensive — requires embedding service).
+        """
+        return find_duplicates(wiki_root, include_semantic=include_semantic)
+
+    # ------------------------------------------------------------------
+    # Phase 9: File Watcher
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def start_file_watcher(workspace_dir: str, wiki_root: str | None = None) -> dict[str, Any]:
+        """Start a file watcher for automatic wiki ingestion."""
+        return await start_watcher(workspace_dir, wiki_root=wiki_root)
+
+    @staticmethod
+    async def stop_file_watcher(workspace_dir: str) -> dict[str, Any]:
+        """Stop the file watcher for the given workspace."""
+        return await stop_watcher(workspace_dir)
+
+    @staticmethod
+    def get_file_watcher_status(workspace_dir: str) -> dict[str, Any]:
+        """Get the status of the file watcher for the given workspace."""
+        return get_watcher_status(workspace_dir)

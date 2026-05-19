@@ -8,11 +8,18 @@ simplifications:
   - No image extraction from search results
 
 The scoring system and CJK tokenisation are preserved faithfully.
+
+Enhancements over llm_wiki:
+  - LRU memory cache with TTL for repeated queries
+  - Snippet highlighting of matched terms
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -59,6 +66,7 @@ class SearchResult:
     snippet: str
     title_match: bool
     score: float
+    highlighted_snippet: str = ""
 
 
 def tokenize_query(query: str) -> list[str]:
@@ -159,6 +167,106 @@ def _build_snippet(content: str, query: str) -> str:
     return snippet
 
 
+def _highlight_snippet(snippet: str, tokens: list[str], query_phrase: str) -> str:
+    """Add ``<mark>`` tags around matched tokens in a snippet for display.
+
+    Uses ``<mark>...</mark>`` tags so the frontend can style them.
+    """
+    if not tokens and not query_phrase:
+        return snippet
+
+    result = snippet
+
+    # Highlight the full phrase first (higher priority)
+    if query_phrase:
+        pattern = re.compile(re.escape(query_phrase), re.IGNORECASE)
+        result = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", result)
+
+    # Highlight individual tokens that aren't already inside a <mark> tag
+    for token in tokens:
+        if len(token) < 2:
+            continue
+        # Skip tokens that are substrings of the query phrase (already highlighted)
+        if query_phrase and token in query_phrase:
+            continue
+        pattern = re.compile(re.escape(token), re.IGNORECASE)
+
+        def _replace_non_marked(m: re.Match, _text: str = result) -> str:
+            # Check if this match is inside an existing <mark> tag
+            before = _text[:m.start()]
+            open_count = before.count("<mark>")
+            close_count = before.count("</mark>")
+            if open_count > close_count:
+                return m.group(0)  # Already inside a <mark>
+            return f"<mark>{m.group(0)}</mark>"
+
+        new_result = pattern.sub(_replace_non_marked, result)
+        if new_result != result:
+            result = new_result
+
+    return result
+
+
+# ── Search cache ────────────────────────────────────────────────────────────
+
+class _SearchCache:
+    """LRU cache for wiki search results with TTL expiry.
+
+    Keyed by (wiki_root, query, max_results).  Entries older than
+    ``ttl_seconds`` are lazily evicted on access.
+    """
+
+    def __init__(self, maxsize: int = 128, ttl_seconds: float = 300.0) -> None:
+        self._maxsize = maxsize
+        self._ttl = ttl_seconds
+        self._cache: OrderedDict[str, tuple[float, list[SearchResult]]] = OrderedDict()
+
+    def _make_key(self, wiki_root: str, query: str, max_results: int) -> str:
+        raw = f"{wiki_root}|{query}|{max_results}"
+        return hashlib.md5(raw.encode()).hexdigest()
+
+    def get(self, wiki_root: str, query: str, max_results: int) -> list[SearchResult] | None:
+        key = self._make_key(wiki_root, query, max_results)
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        ts, results = entry
+        if time.monotonic() - ts > self._ttl:
+            del self._cache[key]
+            return None
+        # Move to end (most recently used)
+        self._cache.move_to_end(key)
+        return results
+
+    def put(self, wiki_root: str, query: str, max_results: int, results: list[SearchResult]) -> None:
+        key = self._make_key(wiki_root, query, max_results)
+        self._cache[key] = (time.monotonic(), results)
+        self._cache.move_to_end(key)
+        # Evict oldest entries if over capacity
+        while len(self._cache) > self._maxsize:
+            self._cache.popitem(last=False)
+
+    def invalidate(self, wiki_root: str) -> None:
+        """Invalidate all cache entries for a given wiki root.
+
+        Since we hash the key, we clear the whole cache when any write
+        occurs (writes are infrequent compared to reads).
+        """
+        self._cache.clear()
+
+
+# Module-level singleton
+_search_cache = _SearchCache()
+
+
+def invalidate_search_cache(wiki_root: str) -> None:
+    """Invalidate the search cache for the given wiki root.
+
+    Should be called after any write/merge/delete operation.
+    """
+    _search_cache.invalidate(wiki_root)
+
+
 def _score_file(
     file_path: Path,
     content: str,
@@ -217,12 +325,16 @@ def _score_file(
     if len(rel_parts) >= 2:
         category = rel_parts[-2]
 
+    snippet = _build_snippet(content, snippet_anchor)
+    highlighted = _highlight_snippet(snippet, tokens, query_phrase)
+
     return SearchResult(
         path=str(file_path),
         page_id=file_path.stem,
         title=title,
         category=category,
-        snippet=_build_snippet(content, snippet_anchor),
+        snippet=snippet,
+        highlighted_snippet=highlighted,
         title_match=is_title_match,
         score=score,
     )
@@ -237,6 +349,7 @@ def search_wiki(
 
     Walks all ``.md`` files in category subdirectories, scores them
     using the token + phrase scoring system, and returns ranked results.
+    Results are cached with a 5-minute TTL.
     """
     if not query.strip():
         return []
@@ -244,6 +357,11 @@ def search_wiki(
     root = Path(wiki_root)
     if not root.is_dir():
         return []
+
+    # Check cache first
+    cached = _search_cache.get(wiki_root, query, max_results)
+    if cached is not None:
+        return cached
 
     tokens = tokenize_query(query)
     # Fallback: if all tokens were filtered, use the trimmed query
@@ -268,4 +386,9 @@ def search_wiki(
 
     # Sort by score descending; ties broken by alphabetical path
     results.sort(key=lambda r: (-r.score, r.path))
-    return results[:max_results]
+    results = results[:max_results]
+
+    # Store in cache
+    _search_cache.put(wiki_root, query, max_results, results)
+
+    return results

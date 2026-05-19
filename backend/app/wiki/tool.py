@@ -54,6 +54,17 @@ category, then you should extract key entities and concepts into separate \
 pages with [[wikilinks]] cross-references.
 - **lint**: Check the wiki for health issues (orphan pages, broken \
 wikilinks, stale pages, empty categories). Returns a report you can act on.
+- **graph**: Get the knowledge graph — nodes, edges, communities, and insights.
+  Useful for understanding how pages are connected and finding knowledge gaps.
+- **review**: Get actionable review items from lint results. Returns a list of
+  items (broken links, orphan pages, stale pages, etc.) with suggested actions.
+  Use this to identify and fix wiki quality issues.
+- **contradictions**: Find page pairs that might contain contradictory information.
+  Returns candidate pairs with keyword overlap similarity. Use with an LLM
+  to verify contradictions.
+- **dedup**: Find duplicate wiki pages using content hashing, trigram similarity,
+  and optionally vector similarity. Returns exact, near, and semantic duplicate
+  pairs that may need merging. Set `include_semantic=true` for vector-based dedup.
 - **delete**: Delete a wiki page by `page_id`. Also cleans up references.
 
 The wiki root is determined automatically:
@@ -105,7 +116,8 @@ class WikiTool(ToolDefinition):
                     "type": "string",
                     "enum": [
                         "status", "search", "list", "read",
-                        "write", "merge", "ingest", "lint", "delete",
+                        "write", "merge", "ingest", "lint", "graph",
+                        "review", "contradictions", "dedup", "delete",
                     ],
                     "description": "Action to perform on the wiki",
                 },
@@ -157,6 +169,17 @@ class WikiTool(ToolDefinition):
                     "enum": ["general", "research", "reference", "tutorial"],
                     "default": "general",
                 },
+                "scope": {
+                    "type": "string",
+                    "description": "Lint scope: structural (code-only), semantic (LLM), or full (both)",
+                    "enum": ["structural", "semantic", "full"],
+                    "default": "structural",
+                },
+                "include_semantic": {
+                    "type": "boolean",
+                    "description": "For dedup action: include vector similarity (semantic) dedup. Requires embedding. Default: false.",
+                    "default": False,
+                },
             },
             "required": ["action"],
         }
@@ -180,6 +203,10 @@ class WikiTool(ToolDefinition):
             "merge": self._handle_merge,
             "ingest": self._handle_ingest,
             "lint": self._handle_lint,
+            "graph": self._handle_graph,
+            "review": self._handle_review,
+            "contradictions": self._handle_contradictions,
+            "dedup": self._handle_dedup,
             "delete": self._handle_delete,
         }.get(action)
 
@@ -397,12 +424,23 @@ class WikiTool(ToolDefinition):
 
         result = await WikiService.merge_page(wiki_root, title, content, category)
 
+        if result.get("merged") is False and result.get("error"):
+            # Merge was aborted (e.g. body length guard)
+            return ToolResult(
+                error=f"Merge aborted: {result['error']}",
+                title=f"Merge failed: {title}",
+                metadata=result,
+            )
+
         if result.get("merged"):
+            backup_msg = ""
+            if result.get("backup"):
+                backup_msg = f" (backup: {result['backup']})"
             return ToolResult(
                 output=(
                     f"Wiki page merged: {result['title']} "
                     f"({result['category']}/{result['filename']}) — "
-                    f"sections updated/appended, existing knowledge preserved"
+                    f"sections updated/appended, existing knowledge preserved{backup_msg}"
                 ),
                 title=f"Merged: {result['title']}",
                 metadata=result,
@@ -478,7 +516,8 @@ class WikiTool(ToolDefinition):
         if not status.get("initialized"):
             await WikiService.initialize(wiki_root)
 
-        result = await WikiService.lint_wiki(wiki_root)
+        scope = args.get("scope", "structural")
+        result = await WikiService.lint_wiki(wiki_root, scope=scope)
 
         if result.get("healthy"):
             return ToolResult(
@@ -491,13 +530,11 @@ class WikiTool(ToolDefinition):
         issues = result.get("issues", [])
 
         lines = [
-            f"Wiki lint found {result.get('total_issues', 0)} issue(s):",
-            f"  - Orphan pages: {summary.get('orphans', 0)}",
-            f"  - Broken wikilinks: {summary.get('broken_links', 0)}",
-            f"  - Stale pages (>30d): {summary.get('stale', 0)}",
-            f"  - Empty categories: {summary.get('empty_categories', 0)}",
-            "",
+            f"Wiki lint found {result.get('total_issues', 0)} issue(s) [{scope}]:",
         ]
+        for issue_type, count in summary.items():
+            lines.append(f"  - {issue_type}: {count}")
+        lines.append("")
 
         for issue in issues[:20]:  # Show top 20 issues
             severity = issue.get("severity", "info")
@@ -516,5 +553,184 @@ class WikiTool(ToolDefinition):
         return ToolResult(
             output="\n".join(lines),
             title=f"Wiki Lint: {result.get('total_issues', 0)} issue(s)",
+            metadata=result,
+        )
+
+    @staticmethod
+    async def _handle_review(args: dict, wiki_root: str) -> ToolResult:
+        # Auto-initialize if needed
+        status = await WikiService.get_status(wiki_root)
+        if not status.get("initialized"):
+            await WikiService.initialize(wiki_root)
+
+        result = await WikiService.get_review_items(wiki_root)
+
+        open_count = result.get("open", 0)
+        warnings = result.get("warnings", 0)
+        items = result.get("items", [])
+
+        if open_count == 0:
+            return ToolResult(
+                output="No open review items — wiki is in good shape!",
+                title="Wiki Review: Clean",
+                metadata=result,
+            )
+
+        lines = [
+            f"Wiki review: {open_count} open item(s) ({warnings} warning(s))",
+            "",
+        ]
+
+        for item in items:
+            if item["status"] != "open":
+                continue
+            icon = "⚠️" if item["severity"] == "warning" else "ℹ️"
+            lines.append(f"{icon} {item['title']}")
+            if item.get("description"):
+                lines.append(f"   {item['description'][:150]}")
+            action = item.get("suggested_action", "")
+            if action:
+                lines.append(f"   Suggested: {action}")
+            lines.append("")
+
+        return ToolResult(
+            output="\n".join(lines).rstrip(),
+            title=f"Wiki Review: {open_count} item(s)",
+            metadata=result,
+        )
+
+    @staticmethod
+    async def _handle_contradictions(args: dict, wiki_root: str) -> ToolResult:
+        """Find page pairs that might contain contradictions."""
+        # Auto-initialize if needed
+        status = await WikiService.get_status(wiki_root)
+        if not status.get("initialized"):
+            await WikiService.initialize(wiki_root)
+
+        candidates = WikiService.get_contradiction_candidates(wiki_root)
+
+        if not candidates:
+            return ToolResult(
+                output="No contradiction candidates found — all pages appear consistent.",
+                title="Contradictions: None",
+                metadata={"count": 0},
+            )
+
+        lines = [f"Found {len(candidates)} page pair(s) with potential contradictions:", ""]
+        for page_a, page_b, similarity in candidates[:20]:
+            lines.append(f"  ⚠️ '{page_a}' ↔ '{page_b}' (similarity: {similarity:.0%})")
+            # Generate the verification prompt for each pair
+            prompt = WikiService.get_contradiction_prompt(page_a, page_b, wiki_root)
+            if prompt:
+                lines.append(f"     → Use the contradiction prompt to verify with an LLM")
+
+        if len(candidates) > 20:
+            lines.append(f"  ... and {len(candidates) - 20} more pairs")
+
+        return ToolResult(
+            output="\n".join(lines),
+            title=f"Contradictions: {len(candidates)} candidate(s)",
+            metadata={
+                "count": len(candidates),
+                "candidates": [
+                    {"page_a": a, "page_b": b, "similarity": round(s, 3)}
+                    for a, b, s in candidates
+                ],
+            },
+        )
+
+    @staticmethod
+    async def _handle_dedup(args: dict, wiki_root: str) -> ToolResult:
+        """Find duplicate wiki pages (exact, near, and optionally semantic)."""
+        # Auto-initialize if needed
+        status = await WikiService.get_status(wiki_root)
+        if not status.get("initialized"):
+            await WikiService.initialize(wiki_root)
+
+        include_semantic = args.get("include_semantic", False)
+        result = WikiService.find_duplicate_pages(
+            wiki_root, include_semantic=include_semantic,
+        )
+
+        exact = result.get("exact", [])
+        near = result.get("near", [])
+        semantic = result.get("semantic", [])
+        total = len(exact) + len(near) + len(semantic)
+
+        if total == 0:
+            return ToolResult(
+                output="No duplicate pages found — all pages are unique.",
+                title="Dedup: Clean",
+                metadata=result,
+            )
+
+        lines = [f"Found {total} duplicate group(s):", ""]
+
+        if exact:
+            lines.append("Exact duplicates (identical content):")
+            for group in exact:
+                page_ids = group.get("page_ids", [])
+                titles = group.get("titles", [])
+                lines.append(f"  📄 {', '.join(titles)} ({', '.join(page_ids)})")
+
+        if near:
+            lines.append("")
+            lines.append("Near duplicates (trigram similarity > 0.8):")
+            for pair in near:
+                titles = pair.get("titles", [])
+                similarity = pair.get("similarity", 0)
+                lines.append(f"  📄 {titles[0]} ↔ {titles[1]} (similarity: {similarity:.0%})")
+
+        if semantic:
+            lines.append("")
+            lines.append("Semantic duplicates (vector similarity > 0.9):")
+            for pair in semantic:
+                titles = pair.get("titles", [])
+                similarity = pair.get("similarity", 0)
+                lines.append(f"  📄 {titles[0]} ↔ {titles[1]} (similarity: {similarity:.0%})")
+
+        lines.append("")
+        lines.append("Suggested action: Use the /wiki/deduplicate endpoint to remove duplicates,")
+        lines.append("or manually merge pages with overlapping content.")
+
+        return ToolResult(
+            output="\n".join(lines),
+            title=f"Dedup: {total} group(s)",
+            metadata=result,
+        )
+
+    @staticmethod
+    async def _handle_graph(args: dict, wiki_root: str) -> ToolResult:
+        # Auto-initialize if needed
+        status = await WikiService.get_status(wiki_root)
+        if not status.get("initialized"):
+            await WikiService.initialize(wiki_root)
+
+        result = await WikiService.get_graph(wiki_root)
+
+        stats = result.get("stats", {})
+        nodes = result.get("nodes", [])
+        insights = result.get("insights", [])
+
+        lines = [
+            f"Knowledge Graph: {stats.get('total_nodes', 0)} nodes, "
+            f"{stats.get('total_edges', 0)} edges, "
+            f"{stats.get('total_communities', 0)} communities",
+            f"Orphan nodes: {stats.get('orphan_nodes', 0)}",
+            f"Avg links per node: {stats.get('avg_links_per_node', 0)}",
+            "",
+        ]
+
+        if insights:
+            lines.append("Insights:")
+            for insight in insights[:10]:
+                icon = "🔗" if insight.get("type") == "surprising_connection" else "🕳️"
+                lines.append(f"  {icon} {insight.get('title', 'Unknown')}")
+            if len(insights) > 10:
+                lines.append(f"  ... and {len(insights) - 10} more insights")
+
+        return ToolResult(
+            output="\n".join(lines),
+            title=f"Wiki Graph: {stats.get('total_nodes', 0)} nodes",
             metadata=result,
         )

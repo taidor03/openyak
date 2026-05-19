@@ -481,8 +481,9 @@ async def get_message_history_for_llm(
                 llm_messages.append({"role": "user", "content": content})
 
         elif role == "assistant":
-            # Collect assistant text and tool calls
+            # Collect assistant text, reasoning, and tool calls
             text_parts = []
+            reasoning_parts = []
             tool_calls = []
             tool_results = []
 
@@ -492,6 +493,8 @@ async def get_message_history_for_llm(
 
                 if part_type == "text":
                     text_parts.append(part_data.get("text", ""))
+                elif part_type == "reasoning":
+                    reasoning_parts.append(part_data.get("text", ""))
                 elif part_type == "tool":
                     tool_name = part_data.get("tool", "")
                     call_id = part_data.get("call_id", "")
@@ -535,7 +538,7 @@ async def get_message_history_for_llm(
                         })
 
             # Build assistant message
-            if text_parts or tool_calls:
+            if text_parts or tool_calls or reasoning_parts:
                 assistant_content = "\n".join(text_parts) if text_parts else ""
                 if assistant_content:
                     assistant_content = trim_for_context(
@@ -547,6 +550,10 @@ async def get_message_history_for_llm(
                     "role": "assistant",
                     "content": assistant_content,
                 }
+                # Include reasoning_content for models that support thinking mode (e.g. DeepSeek R1)
+                # DeepSeek requires reasoning_content to be passed back in subsequent turns
+                if reasoning_parts:
+                    assistant_msg["reasoning_content"] = "\n".join(reasoning_parts)
                 if tool_calls:
                     assistant_msg["tool_calls"] = tool_calls
                 llm_messages.append(assistant_msg)

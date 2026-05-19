@@ -247,3 +247,119 @@ def merge_sections(
             result_parts.append(f"\n{prefix} {new_heading}\n{new_content}")
 
     return "\n".join(result_parts)
+
+
+# ── Frontmatter merge ────────────────────────────────────────────────────
+
+# Array fields that should be union-merged
+_ARRAY_FIELDS = {"tags", "sources", "related"}
+
+
+def _parse_fm_list(value: str) -> list[str]:
+    """Parse a YAML list value from frontmatter.
+
+    Handles both bracket notation ``[a, b, c]`` and
+    wikilink bracket notation ``["[[a]]", "[[b]]"]``.
+    """
+    value = value.strip()
+    if not value or value in ("[]", "[ ]"):
+        return []
+
+    # Bracket notation: [item1, item2, ...]
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        items = []
+        for item in re.split(r',\s*', inner):
+            item = item.strip().strip("'\"")
+            if item:
+                items.append(item)
+        return items
+
+    # Single value
+    return [value.strip().strip("'\"")] if value.strip() else []
+
+
+def _format_fm_list(items: list[str]) -> str:
+    """Format a list back to YAML bracket notation."""
+    if not items:
+        return "[]"
+    formatted = ", ".join(f'"{item}"' for item in sorted(set(items)))
+    return f"[{formatted}]"
+
+
+# Locked fields that must never be overwritten by incoming frontmatter.
+# These are identity fields that define the page's canonical metadata.
+_LOCKED_FIELDS = {"title", "category", "type"}
+
+
+def merge_frontmatter(existing_fm: str, new_fm: str) -> str:
+    """Three-layer frontmatter merge.
+
+    Layer 1 -- Array fields union: tags, sources, related take the union.
+    Layer 2 -- Scalar fields keep existing: created stays, updated takes latest.
+    Layer 3 -- Locked fields never overwrite: title, category, type stay unchanged.
+
+    Args:
+        existing_fm: The existing frontmatter string (between ``---`` markers).
+        new_fm: The new frontmatter string (between ``---`` markers).
+
+    Returns:
+        Merged frontmatter string (without ``---`` markers).
+    """
+    def _parse_fields(fm: str) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        for line in fm.split("\n"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            colon_idx = stripped.find(":")
+            if colon_idx == -1:
+                continue
+            key = stripped[:colon_idx].strip()
+            value = stripped[colon_idx + 1:].strip()
+            fields[key] = value
+        return fields
+
+    existing_fields = _parse_fields(existing_fm)
+    new_fields = _parse_fields(new_fm)
+    merged_fields: dict[str, str] = dict(existing_fields)
+
+    for key, new_value in new_fields.items():
+        # Layer 3: Locked fields — never overwrite
+        if key in _LOCKED_FIELDS:
+            continue
+
+        # Layer 1: Array fields — union
+        if key in _ARRAY_FIELDS:
+            existing_items = _parse_fm_list(merged_fields.get(key, "[]"))
+            new_items = _parse_fm_list(new_value)
+            union_items = list(set(existing_items + new_items))
+            merged_fields[key] = _format_fm_list(union_items)
+            continue
+
+        # Layer 2: Scalar fields — keep existing for 'created', take new for 'updated'
+        if key == "created":
+            continue  # Always keep existing created date
+        if key == "updated":
+            merged_fields[key] = new_value  # Always take latest updated
+            continue
+
+        # Default: take new value if it's non-empty
+        if new_value and new_value not in ("[]", "''", '""'):
+            merged_fields[key] = new_value
+
+    # Rebuild frontmatter string — preserve field order from existing,
+    # then append any truly new fields from incoming.
+    existing_key_order = list(existing_fields.keys())
+    new_keys = [k for k in new_fields if k not in existing_fields and k not in _LOCKED_FIELDS]
+
+    lines = []
+    for key in existing_key_order:
+        if key in merged_fields:
+            lines.append(f"{key}: {merged_fields[key]}")
+    for key in new_keys:
+        if key in merged_fields:
+            lines.append(f"{key}: {merged_fields[key]}")
+    return "\n".join(lines)
