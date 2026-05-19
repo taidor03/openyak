@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     zhipu_api_key: str = ""         # OPENYAK_ZHIPU_API_KEY (智谱 GLM)
     siliconflow_api_key: str = ""   # OPENYAK_SILICONFLOW_API_KEY (硅基流动)
     xiaomi_api_key: str = ""        # OPENYAK_XIAOMI_API_KEY (MiMo)
+    zen_api_key: str = ""            # OPENYAK_ZEN_API_KEY (opencode.ai ZEN)
+    zen_go_api_key: str = ""         # OPENYAK_ZEN_GO_API_KEY (opencode.ai ZEN Go)
     custom_endpoints: str = "[]"    # OPENYAK_CUSTOM_ENDPOINTS
 
     # Comma-separated list of provider IDs to disable (e.g. "groq,deepseek")

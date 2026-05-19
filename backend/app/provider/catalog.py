@@ -171,4 +171,19 @@ PROVIDER_CATALOG: dict[str, ProviderDef] = {
         kind="openai_compat",
         base_url="https://api.xiaomimimo.com/v1",
     ),
+    # --- Aggregator Proxies ---
+    "zen": ProviderDef(
+        id="zen",
+        name="ZEN (opencode.ai)",
+        settings_key="zen_api_key",
+        kind="openai_compat",
+        base_url="https://opencode.ai/zen/v1",
+    ),
+    "zen-go": ProviderDef(
+        id="zen-go",
+        name="ZEN Go (opencode.ai)",
+        settings_key="zen_go_api_key",
+        kind="openai_compat",
+        base_url="https://opencode.ai/zen/go/v1",
+    ),
 }

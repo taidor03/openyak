@@ -4,9 +4,12 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Check, ChevronDown, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useProviderModels } from "@/hooks/use-provider-models";
 import { useModelArenaMap, type ArenaScore } from "@/hooks/use-arena-scores";
 import { useSettingsStore } from "@/stores/settings-store";
+import { api } from "@/lib/api";
+import { API, queryKeys } from "@/lib/constants";
 import {
   Popover,
   PopoverContent,
@@ -29,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usdToCentsPerM, formatUsdPerM } from "@/lib/pricing";
 import type { ModelInfo } from "@/types/model";
+import type { ProviderInfo } from "@/types/usage";
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
@@ -53,6 +57,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   siliconflow: "SiliconFlow",
   xiaomi: "MiMo",
   "rapid-mlx": "Rapid-MLX",
+  zen: "ZEN",
+  "zen-go": "ZEN Go",
 };
 
 type SortMode = "name" | "price" | "quality" | "popular" | "free";
@@ -146,6 +152,23 @@ export function HeaderModelDropdown() {
   const [sortBy, setSortBy] = useState<SortMode>(hasArena ? "popular" : "name");
   const { selectedModel, selectedProviderId, setSelectedModel } =
     useSettingsStore();
+
+  // Fetch provider list to resolve custom_ IDs to human-readable names
+  const { data: providersData } = useQuery({
+    queryKey: queryKeys.providers,
+    queryFn: () => api.get<ProviderInfo[]>(API.CONFIG.PROVIDERS),
+  });
+
+  // Build a map from provider_id → display name for custom_ endpoints
+  const providerNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of providersData ?? []) {
+      if (p.id.startsWith("custom_") && p.name) {
+        map[p.id] = p.name;
+      }
+    }
+    return map;
+  }, [providersData]);
   const sortButtons = hasArena ? SORT_BUTTONS_FULL : SORT_BUTTONS_SIMPLE;
   // Reset sort mode when switching between providers with/without arena data
   useEffect(() => {
@@ -401,6 +424,7 @@ export function HeaderModelDropdown() {
                           }
                           arena={arenaMap.get(model.id)}
                           sortBy={sortBy}
+                          providerNameMap={providerNameMap}
                           onSelect={() => {
                             setSelectedModel(model.id, model.provider_id);
                             setOpen(false);
@@ -424,6 +448,7 @@ export function HeaderModelDropdown() {
                           }
                           arena={arenaMap.get(model.id)}
                           sortBy={sortBy}
+                          providerNameMap={providerNameMap}
                           onSelect={() => {
                             setSelectedModel(model.id, model.provider_id);
                             setOpen(false);
@@ -448,6 +473,7 @@ function ModelRow({
   isSelected,
   arena,
   sortBy,
+  providerNameMap,
   onSelect,
   t,
 }: {
@@ -455,6 +481,7 @@ function ModelRow({
   isSelected: boolean;
   arena: ArenaScore | undefined;
   sortBy: SortMode;
+  providerNameMap: Record<string, string>;
   onSelect: () => void;
   t: (key: string) => string;
 }) {
@@ -467,7 +494,14 @@ function ModelRow({
     (sortBy === "quality" && arena && arena.arenaScore > 0) ||
     (sortBy === "popular" && arena && arena.popularityRank > 0);
 
-  const providerLabel = PROVIDER_LABELS[model.provider_id] ?? model.provider_id;
+  // Resolve provider label: use PROVIDER_LABELS for known providers,
+  // providerNameMap for custom_ endpoints, fallback to provider_id
+  const providerLabel =
+    PROVIDER_LABELS[model.provider_id] ??
+    providerNameMap[model.provider_id] ??
+    (model.provider_id.startsWith("custom_")
+      ? model.provider_id.replace(/^custom_/, "Custom")
+      : model.provider_id);
   const showProviderBadge =
     model.provider_id !== "openrouter" &&
     model.provider_id !== "openai-subscription" &&
