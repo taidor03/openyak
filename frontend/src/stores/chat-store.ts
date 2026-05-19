@@ -45,7 +45,7 @@ const EMPTY_SESSION_USAGE: LiveSessionUsage = {
  * not strings; callers pass them through unchanged.
  */
 const SEEN_STEP_FINISH_IDS = new Set<number>();
-const SEEN_STEP_FINISH_LIMIT = 256;
+const SEEN_STEP_FINISH_LIMIT = 2048;
 function rememberStepFinishId(id: number | null | undefined): boolean {
   if (id === null || id === undefined) return false; // unknown id — skip dedup
   if (SEEN_STEP_FINISH_IDS.has(id)) return true; // already seen

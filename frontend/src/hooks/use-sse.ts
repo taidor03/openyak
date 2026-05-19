@@ -16,7 +16,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { api } from "@/lib/api";
 import type { SessionResponse } from "@/types/session";
 import type { ArtifactType } from "@/types/artifact";
-import type { PaginatedMessages } from "@/types/message";
+import type { MessageResponse, PaginatedMessages } from "@/types/message";
 
 // ─── Module-level state ───
 // Persisted across component mounts to survive React navigation.
@@ -38,11 +38,19 @@ const PROGRESSIVE_BUFFER_INTERVAL_MS = 60;
 class ProgressiveBuffer {
   private pending = "";
   private timerId: ReturnType<typeof setTimeout> | null = null;
+  /** Whether at least one flush has occurred in the current stream. */
+  private hasFlushed = false;
 
   constructor(private appendFn: (text: string) => void) {}
 
   push(text: string) {
     this.pending += text;
+    if (!this.hasFlushed) {
+      // First delta: flush immediately to eliminate the 60ms first-token delay.
+      // There is no prior rendering pressure, so batching is unnecessary.
+      this.flush();
+      return;
+    }
     if (!this.timerId) {
       this.timerId = setTimeout(this.flushPending, PROGRESSIVE_BUFFER_INTERVAL_MS);
     }
@@ -56,6 +64,7 @@ class ProgressiveBuffer {
     if (this.pending) {
       this.appendFn(this.pending);
       this.pending = "";
+      this.hasFlushed = true;
     }
   }
 
@@ -65,6 +74,7 @@ class ProgressiveBuffer {
       this.timerId = null;
     }
     this.pending = "";
+    this.hasFlushed = false;
   }
 
   private flushPending = () => {
@@ -75,6 +85,7 @@ class ProgressiveBuffer {
     const chunk = this.pending;
     this.pending = "";
     this.timerId = null;
+    this.hasFlushed = true;
     this.appendFn(chunk);
   };
 }
@@ -130,29 +141,90 @@ export function useSSE(streamId: string | null) {
           requestAnimationFrame(() => requestAnimationFrame(() => r())),
         );
 
+      /** Check whether the last message in a PaginatedMessages has a terminal step-finish.
+       *  Shared by cache-based and API-based finalization checks. */
+      const hasTerminalStepFinish = (msgs: PaginatedMessages | null | undefined) => {
+        const latestMessage = msgs?.messages.at(-1);
+        if (!latestMessage || latestMessage.data.role !== "assistant") return false;
+        return latestMessage.parts.some(
+          (part) => part.data.type === "step-finish" && part.data.reason !== "tool_use",
+        );
+      };
+
       const canFinalizeFromCache = (sessionId: string) => {
         const data = queryClient.getQueryData<InfiniteData<PaginatedMessages>>(
           queryKeys.messages.list(sessionId),
         );
-        const latestMessage = data?.pages.at(-1)?.messages.at(-1);
-        if (!latestMessage || latestMessage.data.role !== "assistant") return false;
-
-        const hasTerminalStepFinish = latestMessage.parts.some((part) => {
-          if (part.data.type !== "step-finish") return false;
-          return part.data.reason !== "tool_use";
-        });
-
-        return hasTerminalStepFinish;
+        const lastPage = data?.pages.at(-1);
+        return hasTerminalStepFinish(lastPage);
       };
 
-      const canFinalizeFromPayload = (messages: PaginatedMessages | null | undefined) => {
-        const latestMessage = messages?.messages.at(-1);
-        if (!latestMessage || latestMessage.data.role !== "assistant") return false;
+      /** Seed the React Query cache directly from Zustand streaming state.
+       *
+       *  This eliminates the blank-flash between StreamingMessage unmounting
+       *  and AssistantMessageGroup mounting — the cache already contains the
+       *  data that finishGeneration() will cause the DB query to reveal.
+       *
+       *  Only called when we know the generation is truly done (DONE or
+       *  AGENT_ERROR). A delayed verification refetch still runs to replace
+       *  this optimistic seed with the authoritative DB data.
+       */
+      const seedCacheFromStreamingState = (sessionId: string) => {
+        const { streamingParts, sessionId: storeSessionId } = store.getState();
+        if (storeSessionId !== sessionId || streamingParts.length === 0) return;
 
-        return latestMessage.parts.some((part) => {
-          if (part.data.type !== "step-finish") return false;
-          return part.data.reason !== "tool_use";
-        });
+        // Convert Zustand PartData[] → PartResponse[]
+        const now = new Date().toISOString();
+        const partResponses = streamingParts.map((part, idx) => ({
+          id: `optimistic-part-${idx}`,
+          message_id: `optimistic-msg`,
+          session_id: sessionId,
+          time_created: now,
+          data: part,
+        }));
+
+        // Build an optimistic assistant message
+        const optimisticMessage: MessageResponse = {
+          id: `optimistic-msg`,
+          session_id: sessionId,
+          time_created: now,
+          data: {
+            role: "assistant",
+            agent: undefined,
+            model_id: undefined,
+            provider_id: undefined,
+          },
+          parts: partResponses,
+        };
+
+        queryClient.setQueryData<InfiniteData<PaginatedMessages>>(
+          queryKeys.messages.list(sessionId),
+          (old) => {
+            if (!old) {
+              return {
+                pages: [{ total: 1, offset: -1, messages: [optimisticMessage] }],
+                pageParams: [-1],
+              };
+            }
+            // Check if the optimistic message already exists (avoid dupes)
+            const lastPage = old.pages[old.pages.length - 1];
+            const alreadySeeded = lastPage?.messages.some(
+              (m) => m.id === optimisticMessage.id,
+            );
+            if (alreadySeeded) return old;
+
+            return {
+              ...old,
+              pages: [
+                ...old.pages.slice(0, -1),
+                {
+                  ...lastPage,
+                  messages: [...lastPage.messages, optimisticMessage],
+                },
+              ],
+            };
+          },
+        );
       };
 
       const finishFromDatabase = async (sessionId: string) => {
@@ -178,7 +250,10 @@ export function useSSE(streamId: string | null) {
               job.session_id === sessionId &&
               (!currentStreamId || job.stream_id === currentStreamId),
           );
-          if (stillActive) return false;
+          if (stillActive) {
+            console.info("[sse] finishFromDB: session %s still active, skipping finalize", sessionId);
+            return false;
+          }
         } catch {
           // If the active-job check fails, fall back to the DB heuristic below.
         }
@@ -206,12 +281,17 @@ export function useSSE(streamId: string | null) {
                 };
               },
             );
-            if (!canFinalizeFromPayload(latestPage)) return false;
+            if (!hasTerminalStepFinish(latestPage)) {
+              console.info("[sse] finishFromDB: session %s latest page has no terminal step-finish", sessionId);
+              return false;
+            }
           } catch {
+            console.warn("[sse] finishFromDB: failed to fetch latest page for session %s", sessionId);
             return false;
           }
         }
 
+        console.info("[sse] finishFromDB: finalizing session %s from DB", sessionId);
         store.getState().finishGeneration();
         connectionStore.getState().setStatus("idle");
         const workspace = useWorkspaceStore.getState();
@@ -426,6 +506,8 @@ export function useSSE(streamId: string | null) {
         const sid = store.getState().sessionId;
         stepFinishTimer = setTimeout(async () => {
           stepFinishTimer = null;
+          // Guard: component unmounted — skip stale callback
+          if (cancelled) return;
           if (!store.getState().isGenerating) return;
 
           // First, try a short debounced DB recovery. This prevents premature
@@ -443,7 +525,9 @@ export function useSSE(streamId: string | null) {
           // hard safety net so truly terminal runs do not hang forever.
           stepFinishTimer = setTimeout(async () => {
             stepFinishTimer = null;
-          if (store.getState().isGenerating) {
+            // Guard: component unmounted — skip stale callback
+            if (cancelled) return;
+            if (store.getState().isGenerating) {
             console.warn("SSE safety net: forcing finishGeneration after step_finish timeout");
             try {
               if (sid) {
@@ -633,10 +717,16 @@ export function useSSE(streamId: string | null) {
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
 
+      // Seed React Query cache from streaming state so AssistantMessageGroup
+      // can render immediately when finishGeneration() sets isGenerating=false.
+      // This eliminates the blank-flash that previously required a 2s fallback.
+      if (sessionId) {
+        seedCacheFromStreamingState(sessionId);
+      }
+
       // Wait for DB messages to load BEFORE clearing streaming state.
-      // Otherwise StreamingMessage unmounts (isGenerating=false) before
-      // the DB-fetched AssistantMessageGroup is ready, causing a flash
-      // where the response text disappears.
+      // The optimistic seed above ensures there is no visual gap even if
+      // the DB invalidation hasn't completed yet.
       try {
         if (sessionId) {
           await finishFromDatabase(sessionId);
@@ -645,13 +735,14 @@ export function useSSE(streamId: string | null) {
         store.getState().finishGeneration();
         connectionStore.getState().setStatus("idle");
       }
-      // Delayed verification refetch — catches any React rendering race condition
-      // where the first refetch (before finishGeneration) returned stale data.
-      // By the time the streaming fallback expires (800ms), this refetch will have
-      // updated the React Query cache with the definitive DB content.
+      // Delayed verification refetch — replaces the optimistic seed with
+      // authoritative DB data (including proper message IDs, timestamps,
+      // and any server-side enrichment like cost/tokens).
       const _sid = sessionId;
       if (_sid) {
         setTimeout(() => {
+          // Guard: component unmounted — skip stale refetch
+          if (cancelled) return;
           queryClient.invalidateQueries({
             queryKey: queryKeys.messages.list(_sid),
           });
@@ -682,6 +773,10 @@ export function useSSE(streamId: string | null) {
       textBuffer.flush();
       reasoningBuffer.flush();
       const sessionId = store.getState().sessionId;
+      // Seed React Query cache from streaming state (same as DONE handler)
+      if (sessionId) {
+        seedCacheFromStreamingState(sessionId);
+      }
       // Wait for DB messages (backend now persists partial text on error)
       // before clearing streaming state, same as DONE handler.
       try {
@@ -695,6 +790,8 @@ export function useSSE(streamId: string | null) {
       // Delayed verification refetch (same as DONE handler)
       if (sessionId) {
         setTimeout(() => {
+          // Guard: component unmounted — skip stale refetch
+          if (cancelled) return;
           queryClient.invalidateQueries({
             queryKey: queryKeys.messages.list(sessionId),
           });
@@ -732,6 +829,11 @@ export function useSSE(streamId: string | null) {
       const IDLE_RECOVERY_MS = 15_000;
       const IDLE_CHECK_INTERVAL_MS = 5_000;
       const idleCheckTimer = setInterval(async () => {
+        // Guard: component unmounted — skip and clean up
+        if (cancelled) {
+          clearInterval(idleCheckTimer);
+          return;
+        }
         if (!store.getState().isGenerating) {
           clearInterval(idleCheckTimer);
           return;
@@ -758,6 +860,8 @@ export function useSSE(streamId: string | null) {
       let mobilePauseTimer: ReturnType<typeof setTimeout> | null = null;
       const handleVisibilityChange = () => {
         if (!clientRef.current || !store.getState().isGenerating) return;
+        // Guard: component unmounted — skip
+        if (cancelled) return;
 
         if (document.visibilityState === "visible") {
           // Came back — cancel pending pause and resume immediately.
@@ -772,6 +876,8 @@ export function useSSE(streamId: string | null) {
           // during brief app switches. If the user returns within 30s,
           // the timer is cancelled and the SSE connection stays open.
           mobilePauseTimer = setTimeout(() => {
+            // Guard: component unmounted or already visible — skip
+            if (cancelled) return;
             clientRef.current?.pauseReconnect();
             mobilePauseTimer = null;
           }, 30_000);
