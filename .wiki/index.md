@@ -11,3 +11,4 @@ Welcome to the Wiki Knowledge Center. Pages are organized by category:
 
 <!-- Wiki pages will be indexed here automatically -->
 - [[llm_wiki → xflow-desktop 知识中心吸收分析报告]] (synthesis)
+- [[OpenYak 对话交互全链路深度分析报告]] (synthesis)

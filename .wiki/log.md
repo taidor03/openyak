@@ -18,4 +18,10 @@ A chronological record of wiki mutations.
 - Category: concepts
 ## [2026-05-19] create | llm_wiki → xflow-desktop 知识中心吸收分析报告
 - Category: synthesis
+## [2026-05-19] create | OpenYak 对话交互全链路深度分析报告
+- Category: synthesis
+## [2026-05-19] update | OpenYak 对话交互全链路深度分析报告
+- Category: synthesis
+## [2026-05-19] update | OpenYak 对话交互全链路深度分析报告
+- Category: synthesis
 
