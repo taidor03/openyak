@@ -25,7 +25,7 @@ class GenerationJob:
     """
 
     # Max events to keep in the replay buffer per job
-    _MAX_EVENT_BUFFER = 5000
+    _MAX_EVENT_BUFFER = 20_000
 
     def __init__(self, stream_id: str, session_id: str):
         self.stream_id = stream_id
@@ -65,6 +65,11 @@ class GenerationJob:
 
         # Cap replay buffer to prevent unbounded memory growth
         if len(self.events) > self._MAX_EVENT_BUFFER:
+            dropped = len(self.events) - self._MAX_EVENT_BUFFER
+            logger.warning(
+                "Event buffer overflow for stream %s: dropping %d oldest events (total=%d)",
+                self.stream_id, dropped, len(self.events),
+            )
             self.events = self.events[-self._MAX_EVENT_BUFFER:]
 
         for q in self.subscribers:
@@ -108,6 +113,14 @@ class GenerationJob:
             for event in self.events
             if event.id is not None and event.id > last_event_id
         ]
+
+        # Log reconnect replay details for diagnostics
+        if last_event_id > 0:
+            logger.info(
+                "SSE reconnect for stream %s: last_event_id=%d, replaying %d events (buffer=%d)",
+                self.stream_id, last_event_id, len(replay_events), len(self.events),
+            )
+
         reserve = 1 if self._completed else 0
         capacity = max(0, q.maxsize - reserve)
         if len(replay_events) > capacity:
@@ -145,6 +158,10 @@ class GenerationJob:
 
     def complete(self) -> None:
         """Mark generation as complete. Signal all subscribers."""
+        logger.info(
+            "Generation job completed: stream=%s, session=%s, events=%d, subscribers=%d",
+            self.stream_id, self.session_id, len(self.events), len(self.subscribers),
+        )
         self._completed = True
         for q in self.subscribers:
             try:

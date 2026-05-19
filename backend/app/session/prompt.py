@@ -155,6 +155,11 @@ class SessionPrompt:
         self.finish_reason: str = "stop"
         self.assistant_msg_id: str | None = None
 
+        # Incremental history cache: avoids re-loading and re-converting the
+        # entire message history on every step.  Invalidated on compaction.
+        self._cached_llm_messages: list[dict[str, Any]] | None = None
+        self._cached_last_message_id: str | None = None
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -462,18 +467,76 @@ class SessionPrompt:
         return False
 
     async def _prepare_step_messages(self) -> tuple[list[Any], Any]:
-        """Load history, sanitize, microcompact, and run the before_llm_call middleware."""
+        """Load history, sanitize, microcompact, and run the before_llm_call middleware.
+
+        Uses an incremental cache: on the first step (or after compaction),
+        the full message history is loaded and converted.  On subsequent
+        steps, only new messages are fetched, converted, and appended to the
+        cached list — avoiding the O(N²) cost of re-loading and re-converting
+        the entire history every step.
+        """
         from app.session.utils import (
             get_effective_context_window as _get_effective_context_window,
             sanitize_llm_messages_for_request as _sanitize_llm_messages_for_request,
         )
-        from app.session.manager import get_message_history_for_llm
+        from app.session.manager import (
+            get_message_history_for_llm,
+            get_messages_since,
+            get_messages,
+            _format_messages_for_llm,
+        )
         from app.session.microcompact import microcompact_messages, apply_tool_result_budget
         from app.session.middleware import MiddlewareContext
 
-        async with self.session_factory() as db:
-            async with db.begin():
-                llm_messages = await get_message_history_for_llm(db, self.job.session_id)
+        if self._cached_llm_messages is not None and self._cached_last_message_id is not None:
+            # Incremental path: only load new messages
+            async with self.session_factory() as db:
+                async with db.begin():
+                    new_messages = await get_messages_since(
+                        db, self.job.session_id, self._cached_last_message_id,
+                    )
+
+            if not new_messages:
+                # No new messages — use cache directly
+                llm_messages = list(self._cached_llm_messages)
+            else:
+                # Convert new messages to LLM format
+                new_llm_messages = _format_messages_for_llm(new_messages)
+                # Only compress the new portion (old portion was already compressed)
+                new_llm_messages = microcompact_messages(new_llm_messages)
+                new_llm_messages = apply_tool_result_budget(new_llm_messages)
+                # Append to cache
+                llm_messages = list(self._cached_llm_messages) + new_llm_messages
+                # Update cache
+                self._cached_llm_messages = list(llm_messages)
+                self._cached_last_message_id = new_messages[-1].id
+                logger.debug(
+                    "Incremental history load: %d new messages appended (total=%d)",
+                    len(new_llm_messages), len(llm_messages),
+                )
+        else:
+            # Full path: first load or cache invalidated by compaction
+            async with self.session_factory() as db:
+                async with db.begin():
+                    llm_messages = await get_message_history_for_llm(db, self.job.session_id)
+
+            # --- Zero-cost context compression (inspired by Claude Code) ---
+            # Layer 1: Replace old tool outputs from specific tools with stubs
+            llm_messages = microcompact_messages(llm_messages)
+            # Layer 2: Enforce aggregate tool result size budget
+            llm_messages = apply_tool_result_budget(llm_messages)
+
+            # Record cache — need the last ORM message ID for incremental queries
+            async with self.session_factory() as db:
+                async with db.begin():
+                    all_msgs = await get_messages(db, self.job.session_id)
+                    if all_msgs:
+                        self._cached_last_message_id = all_msgs[-1].id
+            self._cached_llm_messages = list(llm_messages)
+            logger.debug(
+                "Full history load: %d messages cached", len(llm_messages),
+            )
+
         llm_messages = _sanitize_llm_messages_for_request(
             llm_messages,
             session_id=self.job.session_id,
@@ -483,12 +546,6 @@ class SessionPrompt:
                 else None
             ),
         )
-
-        # --- Zero-cost context compression (inspired by Claude Code) ---
-        # Layer 1: Replace old tool outputs from specific tools with stubs
-        llm_messages = microcompact_messages(llm_messages)
-        # Layer 2: Enforce aggregate tool result size budget
-        llm_messages = apply_tool_result_budget(llm_messages)
 
         mw_ctx = MiddlewareContext(
             session_id=self.job.session_id,
@@ -548,6 +605,9 @@ class SessionPrompt:
         compaction if that frees nothing or is exhausted. Returns True if the
         outer loop should break (compaction failed permanently).
         """
+        # Invalidate incremental cache — compaction changes message history
+        self._cached_llm_messages = None
+        self._cached_last_message_id = None
         from app.session.compaction import run_compaction
         from app.session.manager import get_message_history_for_llm
         from app.session.microcompact import context_collapse

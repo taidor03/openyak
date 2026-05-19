@@ -120,9 +120,10 @@ export function MessageList({
   const anchoredSessionRef = useRef<string | undefined>(undefined);
 
   // Keep StreamingMessage visible briefly after generation finishes so the
-  // DB-fetched AssistantMessageGroup has time to render. Without this,
-  // there's a 1-frame blank flash between StreamingMessage unmounting and
-  // the DB messages mounting.
+  // DB-fetched AssistantMessageGroup has time to render. With the optimistic
+  // cache seeding in use-sse.ts, the React Query cache is already populated
+  // before finishGeneration() fires, so the fallback only needs to bridge
+  // a single React render cycle (~200ms), not the full DB refetch latency.
   const wasGeneratingRef = useRef(false);
   const prevMessageCountRef = useRef(messages?.length ?? 0);
   const [showStreamingFallback, setShowStreamingFallback] = useState(false);
@@ -135,7 +136,7 @@ export function MessageList({
     } else if (wasGeneratingRef.current) {
       wasGeneratingRef.current = false;
       setShowStreamingFallback(true);
-      const timer = setTimeout(() => setShowStreamingFallback(false), 2000);
+      const timer = setTimeout(() => setShowStreamingFallback(false), 200);
       return () => clearTimeout(timer);
     }
   }, [isGenerating, messages.length]);

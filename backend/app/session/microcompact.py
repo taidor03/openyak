@@ -107,6 +107,30 @@ def microcompact_messages(
     if cutoff <= 0:
         return messages
 
+    # Quick scan: if the unprotected region has no compressible tool results,
+    # skip the full scan-and-copy. In multi-step conversations most tool
+    # outputs are already stubbed from previous microcompact runs.
+    has_compressible = False
+    for i in range(cutoff):
+        msg = messages[i]
+        if msg.get("role") != "tool":
+            continue
+        tool_call_id = msg.get("tool_call_id", "")
+        tool_name = call_id_map.get(tool_call_id, "")
+        content = msg.get("content", "")
+        if (
+            tool_name in MICROCOMPACTABLE_TOOLS
+            and isinstance(content, str)
+            and content
+            and not content.startswith("[Previous ")  # already stubbed
+            and estimate_tokens(content) > max_tool_output_tokens
+        ):
+            has_compressible = True
+            break
+
+    if not has_compressible:
+        return messages
+
     replaced = 0
     result = []
     for i, msg in enumerate(messages):
@@ -187,6 +211,11 @@ def apply_tool_result_budget(
 
         content = msg.get("content", "")
         if isinstance(content, str) and content:
+            # Skip already-stubbed tool results — they only occupy ~20 tokens
+            if content.startswith("[Previous ") or (
+                content.startswith("[") and "output removed" in content
+            ):
+                continue
             tokens = estimate_tokens(content)
             tool_call_id = msg.get("tool_call_id", "")
             tool_entries.append({

@@ -406,6 +406,34 @@ async def get_messages(
     return list(result.scalars().all())
 
 
+async def get_messages_since(
+    db: AsyncSession,
+    session_id: str,
+    after_message_id: str | None = None,
+) -> list[Message]:
+    """Get messages created after the given message ID.
+
+    Used for incremental history loading: after the first full load,
+    subsequent steps only need messages created since the last load.
+    Returns all messages if after_message_id is None.
+    """
+    stmt = (
+        select(Message)
+        .where(Message.session_id == session_id)
+        .options(selectinload(Message.parts))
+        .order_by(Message.time_created.asc())
+    )
+    if after_message_id:
+        # Find the timestamp of the reference message, then get all after it
+        ref_stmt = select(Message.time_created).where(Message.id == after_message_id)
+        ref_result = await db.execute(ref_stmt)
+        ref_time = ref_result.scalar_one_or_none()
+        if ref_time:
+            stmt = stmt.where(Message.time_created > ref_time)
+    result = await db.execute(stmt)
+    return list(result.unique().scalars().all())
+
+
 async def get_message_history_for_llm(
     db: AsyncSession,
     session_id: str,
@@ -416,6 +444,16 @@ async def get_message_history_for_llm(
     [{role: "user", content: "..."}, {role: "assistant", content: "..."}, ...]
     """
     messages = await get_messages(db, session_id)
+    return _format_messages_for_llm(messages)
+
+
+def _format_messages_for_llm(
+    messages: list[Message],
+) -> list[dict[str, Any]]:
+    """Convert ORM messages into the OpenAI message format.
+
+    Shared by full-load and incremental-load paths.
+    """
     llm_messages = []
 
     # After a compaction summary is written, that summary becomes the new
