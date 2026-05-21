@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { BookOpen, Loader2, Shield } from "lucide-react";
+import { BookOpen, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -14,6 +14,7 @@ import { WikiEditor } from "./wiki-editor";
 import { WikiPageView } from "./wiki-page-view";
 import { DndIngestOverlay } from "./wiki-dnd-ingest";
 import { WikiReviewPanel } from "./wiki-review-panel";
+import { WikiQueuePanel } from "./wiki-queue-panel";
 import {
   type WikiTarget,
   type WikiStatus,
@@ -43,7 +44,7 @@ function showToast(message: string, type: "error" | "success" = "error") {
 
 export function KnowledgeCenterContent() {
   const { t } = useTranslation("common");
-  const activeWorkspacePath = useWorkspaceStore((s) => s.activeWorkspacePath);
+  const activeWorkspacePath = useWorkspaceStore((s) => s.activeWorkspacePath); // eslint-disable-line @typescript-eslint/no-unused-vars
 
   // Wiki target: null = global, string = project directory
   const [target, setTarget] = useState<WikiTarget>(null);
@@ -66,8 +67,11 @@ export function KnowledgeCenterContent() {
   const [isEditingExisting, setIsEditingExisting] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
 
-  // View mode: list or graph or review
-  const [viewMode, setViewMode] = useState<"list" | "graph" | "review">("list");
+  // View mode: list or graph or review or queue
+  const [viewMode, setViewMode] = useState<"list" | "graph" | "review" | "queue">("list");
+
+  // Queue pending count for sidebar badge
+  const [queuePendingCount, setQueuePendingCount] = useState(0);
 
   // Search mode: keyword, semantic, or hybrid
   const [searchMode, setSearchMode] = useState<SearchMode>("keyword");
@@ -317,6 +321,21 @@ export function KnowledgeCenterContent() {
     await fetchStatus();
   }, [fetchPages, fetchStatus, selectedCategory]);
 
+  // Fetch queue pending count for sidebar badge
+  useEffect(() => {
+    const fetchQueueCount = async () => {
+      try {
+        const data = await api.get<{ stats: { pending: number; processing: number; failed: number } }>(wikiUrl("/ingest-queue"));
+        setQueuePendingCount(data.stats.pending + data.stats.processing + data.stats.failed);
+      } catch {
+        setQueuePendingCount(0);
+      }
+    };
+    fetchQueueCount();
+    const timer = setInterval(fetchQueueCount, 30000);
+    return () => clearInterval(timer);
+  }, [wikiUrl]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -358,6 +377,7 @@ export function KnowledgeCenterContent() {
           pages={pages}
           viewMode={viewMode}
           searchMode={searchMode}
+          queuePendingCount={queuePendingCount}
           onTargetChange={setTarget}
           onCategoryChange={setSelectedCategory}
           onSearchQueryChange={setSearchQuery}
@@ -379,7 +399,6 @@ export function KnowledgeCenterContent() {
               isWriting={isWriting}
               isMerging={isMerging}
               target={target}
-              status={status}
               onTitleChange={setEditTitle}
               onContentChange={setEditContent}
               onCategoryChange={setEditCategory}
@@ -397,6 +416,11 @@ export function KnowledgeCenterContent() {
               onEdit={handleEditPage}
               onDelete={handleDeletePage}
               onWikilinkClick={(target) => handleSelectPage(target)}
+            />
+          ) : viewMode === "queue" ? (
+            <WikiQueuePanel
+              wikiUrl={wikiUrl}
+              onRefresh={handleIngestComplete}
             />
           ) : viewMode === "review" ? (
             <WikiReviewPanel

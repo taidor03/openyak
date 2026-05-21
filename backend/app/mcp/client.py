@@ -72,10 +72,20 @@ class McpClient:
             await self._cleanup()
 
     async def _connect_stdio(self) -> None:
-        """Connect via stdio transport (local subprocess)."""
-        command = self.config.get("command", [])
-        if not command:
+        """Connect via stdio transport (local subprocess).
+
+        Supports both command formats:
+          - str:  single executable name (e.g. ``"semble"``)
+          - list: [executable, arg1, ...] (e.g. ``["uvx", "--from", "pkg", "cmd"]``)
+        """
+        raw_command = self.config.get("command", [])
+        if not raw_command:
             raise ValueError(f"MCP server '{self.name}': 'command' is required for local type")
+
+        if isinstance(raw_command, str):
+            command: list[str] = [raw_command]
+        else:
+            command = raw_command
 
         env = self.config.get("environment")
         server_params = StdioServerParameters(

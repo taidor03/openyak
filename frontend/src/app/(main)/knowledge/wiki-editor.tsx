@@ -4,14 +4,13 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Globe,
-  Pencil,
   ChevronDown,
   Check,
   Folder,
   Eye,
   Code2,
   GitMerge,
-  Save,
+  RotateCcw,
 } from "lucide-react";
 
 import { cn, directoryLabelOf, normalizeDirectory } from "@/lib/utils";
@@ -20,9 +19,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/constants";
 import type { SessionResponse } from "@/types/session";
 import { WikiMarkdown } from "./wiki-markdown";
+import { useAutoSave } from "./use-auto-save";
 import {
   type WikiTarget,
-  type WikiStatus,
   CATEGORIES,
   CATEGORY_ICONS,
   CATEGORY_I18N_KEYS,
@@ -181,7 +180,6 @@ interface WikiEditorProps {
   isWriting: boolean;
   isMerging: boolean;
   target: WikiTarget;
-  status: WikiStatus | null;
   onTitleChange: (title: string) => void;
   onContentChange: (content: string) => void;
   onCategoryChange: (category: string) => void;
@@ -199,7 +197,6 @@ export function WikiEditor({
   isWriting,
   isMerging,
   target,
-  status,
   onTitleChange,
   onContentChange,
   onCategoryChange,
@@ -214,46 +211,13 @@ export function WikiEditor({
   const [editorSelectorOpen, setEditorSelectorOpen] = useState(false);
   const editorSelectorRef = useRef<HTMLDivElement>(null);
 
-  // Auto-save draft to localStorage every 30s
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    // Clear previous timer
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    // Only auto-save if there's content
-    if (!editTitle.trim() && !editContent.trim()) {
-      return;
-    }
-
-    setAutoSaveStatus("unsaved");
-
-    // Debounced auto-save (5 seconds after last change)
-    autoSaveTimerRef.current = setTimeout(() => {
-      setAutoSaveStatus("saving");
-      try {
-        const draftKey = `wiki-draft-${editTitle || "untitled"}`;
-        localStorage.setItem(draftKey, JSON.stringify({
-          title: editTitle,
-          content: editContent,
-          category: editCategory,
-          savedAt: new Date().toISOString(),
-        }));
-        setAutoSaveStatus("saved");
-      } catch {
-        setAutoSaveStatus("unsaved");
-      }
-    }, 5000);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [editTitle, editContent, editCategory]);
+  // Auto-save draft via extracted hook (30s interval + 5s debounce)
+  const { status: autoSaveStatus, hasDraft, loadDraft } = useAutoSave(
+    editTitle,
+    editContent,
+    editCategory,
+    { intervalMs: 30000, debounceMs: 5000 },
+  );
 
   // Close selector on outside click
   useEffect(() => {
@@ -422,6 +386,35 @@ export function WikiEditor({
               className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
               placeholder={t("pageTitlePlaceholder")}
             />
+            {/* Auto-save status indicator */}
+            <span className={cn(
+              "shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full",
+              autoSaveStatus === "saved" && "bg-green-500/10 text-green-600",
+              autoSaveStatus === "saving" && "bg-amber-500/10 text-amber-600",
+              autoSaveStatus === "unsaved" && "bg-gray-500/10 text-gray-500",
+            )}>
+              {autoSaveStatus === "saved" && t("autoSaveSaved")}
+              {autoSaveStatus === "saving" && t("autoSaveSaving")}
+              {autoSaveStatus === "unsaved" && t("autoSaveUnsaved")}
+            </span>
+            {/* Draft restore button */}
+            {hasDraft && autoSaveStatus === "unsaved" && (
+              <button
+                onClick={() => {
+                  const draft = loadDraft();
+                  if (draft) {
+                    onTitleChange(draft.title);
+                    onContentChange(draft.content);
+                    onCategoryChange(draft.category);
+                  }
+                }}
+                className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded transition-colors"
+                title={t("restoreDraft", "Restore draft")}
+              >
+                <RotateCcw className="h-2.5 w-2.5" />
+                {t("restore", "Restore")}
+              </button>
+            )}
           </div>
           {/* Save / Cancel actions */}
           <div className="flex items-center gap-1.5 shrink-0">

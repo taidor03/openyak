@@ -6,6 +6,88 @@ Format follows [Keep a Changelog](https://keepachangelog.com/), and this project
 
 ## [Unreleased]
 
+### Added
+
+- **backend/knowledge (Wiki):** Knowledge Hub (知识中心) with Wiki backend service, frontend pages, message cache layer, and full CRUD for wiki pages. Upgraded to a searchable, reviewable, and ingestible knowledge system with 7 initial Wiki files, FTS integration, and LLM-powered absorption pipeline.
+- **backend/knowledge (AI Memory):** AI memory enhancement with task-completion fallback, session drag-to-reorder, and edit read-receipt tracking.
+- **backend/session:** Loop detection now force-stops when all tools are blocked; SSE idle recovery gains `activeSessionIds` fast path.
+- **backend/session (deferred messages):** Assistant messages created lazily; orphan `running_tool` parts cleaned up; SSE completion fires immediately instead of waiting.
+- **backend/MCP:** MCP server config now supports `headers` field per-connection.
+- **backend/MCP (hot-reload):** MCP management page with dynamic configuration hot-reload — add, edit, remove MCP servers without restarting.
+- **backend/MCP (background):** MCP connections moved to background task so backend HTTP service starts immediately without waiting for MCP handshakes.
+- **backend/providers:** Provider settings redesigned with China/Global region split and inline endpoint editing (OpenAI-compatible / custom).
+- **backend/providers (archived banner):** Archived sessions now display a clear identification banner.
+- **backend/api:** Route Module with typed CRUD + stream decorators; DomainError hierarchy with global handler; hit-rate telemetry on `/files/browse*`.
+- **backend/channels:** `ChatChannel` + `VendorTransport` foundation (PR #68); Telegram on-boarded onto the new abstraction (PR #69).
+- **backend/providers (OpenAI subscription):** Model list trimmed to GPT-5.5 and GPT-5.4 with fallback logic.
+- **backend/session/sanitizer:** Context overflow now stubs oldest turns instead of dropping them — retains message envelope shape for paired tool-call/tool-result integrity.
+- **frontend/knowledge (Wiki):** Complete Knowledge Hub UI — wiki page creation, editing, search, and browsing; message cache layer for offline-available recent sessions.
+- **frontend/session:** Session drag-to-reorder, edit read-receipt, and AI memory enhancement UI.
+- **frontend/MCP:** MCP server management page with dynamic hot-reload UI; MCP settings interaction polish.
+- **frontend/desktop:** Desktop startup flow optimized — window displays before IPC readiness signal arrives; window-first UX.
+- **frontend/sidebar:** Redesigned sidebar with `projects-toolbar`, `search-command-dialog` (⌘/Ctrl+K), grouped Pinned → Projects → Chats virtualizer, relative timestamps, hover kebab menu.
+- **frontend/sidebar (persistence):** TanStack Query persisted to localStorage — sidebar renders instantly on restart before backend responds.
+- **frontend/settings:** Dedicated `SettingsSidebar` for `/settings`; Provider management panels with region splitting and endpoint editing.
+- **frontend/compaction:** Manual context compaction via clickable `context-indicator` progress ring with rich tooltip.
+- **frontend/sse:** `DESYNC` event handling no longer wipes streaming state; `COMPACTED` toast; debounced terminal step-finish (1.2s + 8s safety net).
+- **frontend/i18n:** New English/Chinese strings for search palette, manual-compaction phases, context-window tooltip, streaming stages, and action-mode rebrand.
+- **frontend/backend (skills store):** Skills store browser — search bundled catalog of ~1.9k curated skills and install in one click; `GET /api/skills/store/search` and `POST /api/skills/install` endpoints.
+
+### Changed
+
+- **docs:** Full technical documentation pass — reviewed and corrected all 9 customization docs (removed evolution narratives, fixed code accuracy, resolved ambiguities); created 7 Knowledge Center Wiki files; enhanced docs with code details, injection points, config constant tables, and dependency maps.
+- **docs (SSE):** Added SSE state machine design and event grouping technical design documents.
+- **docs (positioning):** Repositioned OpenYak as local-first, privacy-first agent (product docs, README).
+- **backend/MCP:** Removed all built-in MCP servers (open-websearch, Context7, Grep.app) — MCP tab now cleanly handles empty state.
+- **backend/plugin:** Removed superpowers plugin and its cache data; removed execution-plan skill from skills directory.
+- **backend/provider:** Managed OpenRouter proxy treated as aggregator with priority deduping; build prompt rebranded "Muse" → "Yakyak/OpenYak" with `<skill_routing>` directive.
+- **backend/sanitizer:** Context overflow strategy changed from silent drop to partial trim with `[<kind> truncated: …]` markers, preserving conversation shape.
+- **frontend/knowledge:** Message polling strategy refactored for Knowledge Hub integration.
+- **frontend (landing):** Simplified — removed random capability shuffle; honors `?directory=` for "Add new project".
+- **frontend (globals):** Rebranded palette from "Pure Black & White" to Codex-aligned blue-accent palette.
+- **frontend/settings (layout):** Providers tab split into per-mode panels (OpenAI subscription, OpenRouter, custom endpoints, local models).
+- **frontend/workspace:** Section cards restyled with translucent rounded cards; defaults all collapsed but auto-opens when todos/files arrive.
+- **frontend/sidebar:** Footer/nav collapsed to single Settings link; nav reduced to search palette button.
+- **desktop/window:** Default size 1360×840 (golden ratio); cold start re-centers; window-state plugin no longer persists size/position.
+
+### Refactored
+
+- **backend/session:** Extracted handlers from `SessionPrompt._loop()` into named phases; `SessionProcessor.process()` split into `_phase_*` methods; `PromptAssembler.assemble()` extracted from system_prompt builder.
+- **backend/session:** `stream_manager` and `index_manager` moved off `app.state` to module-level singletons (ADR-0009).
+- **backend/api:** Sessions routes migrated to Route Module pattern (ADR-0007).
+- **backend/providers:** `ProvidersTab` component split into per-mode panels for cleaner separation.
+- **backend/devices:** Startup indicator refactored from polling to Context Provider with `/livez` lightweight probe.
+- **frontend:** Backend startup indicator rebuilt as Context Provider with `/livez` probe; removed deprecated OpenClaw gateway install/start/stop UI.
+- **frontend (xflow cleanup):** Removed unused XFLOW constants, unused variables, and cleared xflow fork artifacts.
+
+### Fixed
+
+- **backend/session:** Loop detection now force-stops when all tools are blocked — previously hung on unresponsive tool chains.
+- **backend/MCP (startup):** Backend no longer blocks HTTP readiness on MCP connection attempts — one bad connector can't stall startup.
+- **backend/sse:** SSE idle recovery hardened with `activeSessionIds` fast path; `DESYNC` event on replay-buffer overflow instead of `QueueFull` crash.
+- **backend/sanitizer:** Context overflow no longer silently drops turns that break tool-call/tool-result pairing — preserves envelopes with truncation markers.
+- **frontend (CSP):** Fixed Content Security Policy image source restrictions.
+- **frontend/desktop (startup):** IPC ready notification timing fixed — backend session token path resolved for desktop startup flow.
+- **desktop (reachability):** v1.1.3 CSP regression blocking `ipc://localhost` resolved; CORS preflight `OPTIONS` no longer 401s.
+- **frontend/streaming:** Multi-step turns no longer render duplicate blocks; full-block fade-in flash suppressed on continuation remount.
+- **frontend/settings:** Startup indicator no longer repeats across tab switches.
+
+### Removed
+
+- **backend:** Entire `app/openclaw/` directory and all `openclaw_*` config settings — channels now built-in.
+- **backend:** `open-websearch` built-in MCP server removed.
+- **backend:** All built-in MCPs (Context7, Grep.app) removed; MCP tab simplified to empty state.
+- **backend:** Superpowers plugin and its cache data removed.
+- **frontend:** OpenClaw gateway install/start/stop UI, hooks, types, and constants.
+- **frontend:** XFLOW fork codebase cleared — only `docs/`, `.wiki/`, `.cursor/` retained.
+- **frontend:** `getBackendToken()` cached-promise rejection poisoning removed (retry-with-backoff added in v1.1.5, refined here).
+- **frontend:** Sidebar right + footer borders removed for seamless edge.
+- **frontend (arena scores):** Stale model entries pruned from Intelligence Index.
+
+### Security
+
+- **backend (local API):** Hardening pass for local HTTP API — tightened request authentication, origin validation, and CORS scope (v1.1.3 measures carried forward).
+
 ## [1.1.10] - 2026-05-12
 
 ### Changed

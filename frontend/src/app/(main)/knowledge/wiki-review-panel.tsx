@@ -94,7 +94,7 @@ export function WikiReviewPanel({ wikiUrl, onPageClick, onRefresh }: WikiReviewP
     } finally {
       setResolvingIds((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
     }
-  }, [wikiUrl, fetchReview, onRefresh, t]);
+  }, [wikiUrl, fetchReview, onRefresh]);
 
   if (isLoading) {
     return (

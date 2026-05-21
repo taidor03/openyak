@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -11,6 +11,12 @@ import {
   AlertCircle,
   Lightbulb,
 } from "lucide-react";
+import Graph from "graphology";
+import { SigmaContainer, useLoadGraph, useRegisterEvents, useSetSettings, useSigma } from "@react-sigma/core";
+import "@react-sigma/core/lib/style.css";
+import forceAtlas2 from "graphology-layout-forceatlas2";
+import { random } from "graphology-layout";
+
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -70,134 +76,167 @@ const COMMUNITY_COLORS = [
   "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1",
 ];
 
-// ── Force-directed layout (simple simulation) ──────────────────────────────
+// ── Build graphology Graph from API data ───────────────────────────────────
 
-interface SimNode {
-  id: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  title: string;
-  category: string;
-  type: string;
-  linkCount: number;
-  community: number;
-  key: string;
-  radius: number;
-  color: string;
-}
+function buildGraph(data: GraphData): Graph {
+  const graph = new Graph();
 
-interface SimEdge {
-  source: string;
-  target: string;
-}
-
-function runForceLayout(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  width: number,
-  height: number,
-  iterations: number = 120,
-): SimNode[] {
-  if (nodes.length === 0) return [];
-
-  const nodeMap = new Map<string, SimNode>();
-
-  // Initialize nodes in a circle
-  nodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i) / nodes.length;
-    const r = Math.min(width, height) * 0.35;
-    const linkCount = n.linkCount || 1;
-    const radius = Math.max(4, Math.min(16, 4 + linkCount * 1.5));
+  // Add nodes
+  for (const n of data.nodes) {
     const color = n.community >= 0 && n.community < COMMUNITY_COLORS.length
       ? COMMUNITY_COLORS[n.community % COMMUNITY_COLORS.length]
       : CATEGORY_COLORS[n.category] || "#94a3b8";
+    const size = Math.max(6, Math.min(20, 6 + (n.linkCount || 1) * 2));
 
-    nodeMap.set(n.key, {
-      id: n.id,
-      key: n.key,
-      x: width / 2 + r * Math.cos(angle) + (Math.random() - 0.5) * 50,
-      y: height / 2 + r * Math.sin(angle) + (Math.random() - 0.5) * 50,
-      vx: 0,
-      vy: 0,
-      title: n.title,
-      category: n.category,
-      type: n.type,
-      linkCount: n.linkCount,
-      community: n.community,
-      radius,
+    graph.addNode(n.key, {
+      label: n.title,
+      x: 0,
+      y: 0,
+      size,
       color,
+      // Custom attributes for tooltip
+      _category: n.category,
+      _type: n.type,
+      _linkCount: n.linkCount,
+      _community: n.community,
+      _pageId: n.id,
     });
-  });
+  }
 
-  const simEdges: SimEdge[] = edges
-    .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
-    .map((e) => ({ source: e.source, target: e.target }));
-
-  // Simple force simulation
-  const repulsionStrength = 2000;
-  const attractionStrength = 0.005;
-  const centerStrength = 0.01;
-  const damping = 0.9;
-
-  for (let iter = 0; iter < iterations; iter++) {
-    const alpha = 1 - iter / iterations;
-
-    // Repulsion between all pairs
-    const nodeList = Array.from(nodeMap.values());
-    for (let i = 0; i < nodeList.length; i++) {
-      for (let j = i + 1; j < nodeList.length; j++) {
-        const a = nodeList[i];
-        const b = nodeList[j];
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (repulsionStrength * alpha) / (dist * dist);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx -= fx;
-        a.vy -= fy;
-        b.vx += fx;
-        b.vy += fy;
+  // Add edges (only if both endpoints exist)
+  for (const e of data.edges) {
+    if (graph.hasNode(e.source) && graph.hasNode(e.target)) {
+      try {
+        graph.addEdge(e.source, e.target, {
+          color: "rgba(148, 163, 184, 0.25)",
+          size: 1,
+        });
+      } catch {
+        // Skip duplicate edges
       }
-    }
-
-    // Attraction along edges
-    for (const edge of simEdges) {
-      const a = nodeMap.get(edge.source)!;
-      const b = nodeMap.get(edge.target)!;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = dist * attractionStrength * alpha;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      a.vx += fx;
-      a.vy += fy;
-      b.vx -= fx;
-      b.vy -= fy;
-    }
-
-    // Center gravity
-    for (const node of nodeList) {
-      node.vx += (width / 2 - node.x) * centerStrength * alpha;
-      node.vy += (height / 2 - node.y) * centerStrength * alpha;
-    }
-
-    // Apply velocity
-    for (const node of nodeList) {
-      node.vx *= damping;
-      node.vy *= damping;
-      node.x += node.vx;
-      node.y += node.vy;
     }
   }
 
-  return Array.from(nodeMap.values());
+  return graph;
 }
 
-// ── Graph View Component ───────────────────────────────────────────────────
+// ── Inner: Load graph and run ForceAtlas2 layout ───────────────────────────
+
+function GraphLoader({ graph }: { graph: Graph }) {
+  const loadGraph = useLoadGraph();
+
+  useEffect(() => {
+    // Assign random positions first (required by FA2)
+    random.assign(graph);
+    // Run ForceAtlas2 synchronously
+    const settings = forceAtlas2.inferSettings(graph);
+    forceAtlas2.assign(graph, {
+      iterations: 100,
+      settings: {
+        ...settings,
+        gravity: 1,
+        scalingRatio: 10,
+        barnesHutOptimize: true,
+      },
+    });
+    loadGraph(graph);
+  }, [graph, loadGraph]);
+
+  return null;
+}
+
+// ── Inner: Hover highlight + click handler ─────────────────────────────────
+
+function GraphInteraction({
+  onPageClick,
+  onHoverChange,
+}: {
+  onPageClick?: (pageId: string) => void;
+  onHoverChange: (key: string | null) => void;
+}) {
+  const registerEvents = useRegisterEvents();
+  const sigma = useSigma();
+  const setSettings = useSetSettings();
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+
+  useEffect(() => {
+    registerEvents({
+      enterNode: (e) => {
+        setHoveredNode(e.node);
+        onHoverChange(e.node);
+      },
+      leaveNode: () => {
+        setHoveredNode(null);
+        onHoverChange(null);
+      },
+      clickNode: (e) => {
+        const nodeAttributes = sigma.getGraph().getNodeAttributes(e.node);
+        const pageId = nodeAttributes._pageId as string | undefined;
+        if (pageId) onPageClick?.(pageId);
+      },
+      clickStage: () => {},
+    });
+  }, [registerEvents, sigma, onPageClick, onHoverChange]);
+
+  useEffect(() => {
+    setSettings({
+      nodeReducer: (node, data) => {
+        if (!hoveredNode) return data;
+
+        const graph = sigma.getGraph();
+        if (node === hoveredNode) {
+          return { ...data, highlighted: true, zIndex: 10 };
+        }
+        if (graph.neighbors(hoveredNode).includes(node)) {
+          return { ...data, highlighted: true };
+        }
+        return { ...data, color: "#E2E2E2", zIndex: 0 };
+      },
+      edgeReducer: (edge, data) => {
+        const graph = sigma.getGraph();
+        if (!hoveredNode) return data;
+        if (graph.extremities(edge).includes(hoveredNode)) {
+          return { ...data, hidden: false, color: "rgba(148, 163, 184, 0.6)" };
+        }
+        return { ...data, hidden: true };
+      },
+    });
+  }, [hoveredNode, setSettings, sigma]);
+
+  return null;
+}
+
+// ── Inner: Tooltip for hovered node ────────────────────────────────────────
+
+function HoverTooltip({ nodeKey }: { nodeKey: string | null }) {
+  const sigma = useSigma();
+  const { t } = useTranslation("common");
+
+  if (!nodeKey) return null;
+
+  const graph = sigma.getGraph();
+  if (!graph.hasNode(nodeKey)) return null;
+
+  const attrs = graph.getNodeAttributes(nodeKey);
+  const displayColor = attrs.color as string;
+
+  return (
+    <div
+      className="absolute pointer-events-none z-10 px-2.5 py-1.5 text-xs bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded-lg shadow-lg max-w-48"
+      style={{ top: 8, right: 8 }}
+    >
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: displayColor }} />
+        <p className="font-medium truncate">{attrs.label as string}</p>
+      </div>
+      <p className="text-[var(--text-tertiary)]">
+        {attrs._category as string} · {attrs._linkCount as number} {t("links", "links")}
+      </p>
+    </div>
+  );
+}
+
+// ── Main GraphView Component ───────────────────────────────────────────────
 
 interface GraphViewProps {
   wikiUrl: (path: string) => string;
@@ -206,21 +245,12 @@ interface GraphViewProps {
 
 export function GraphView({ wikiUrl, onPageClick }: GraphViewProps) {
   const { t } = useTranslation("common");
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>("");
-  const [simNodes, setSimNodes] = useState<SimNode[]>([]);
-  const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<GraphInsight | null>(null);
   const [showInsights, setShowInsights] = useState(false);
-
-  // Pan / zoom state
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
-  const lastTransform = useRef({ x: 0, y: 0 });
+  const [hoveredNodeKey, setHoveredNodeKey] = useState<string | null>(null);
 
   // Fetch graph data
   useEffect(() => {
@@ -238,206 +268,11 @@ export function GraphView({ wikiUrl, onPageClick }: GraphViewProps) {
     })();
   }, [wikiUrl]);
 
-  // Run layout when data changes
-  useEffect(() => {
-    if (!graphData || graphData.nodes.length === 0) return;
-
-    const container = containerRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const w = rect.width || 800;
-    const h = rect.height || 600;
-
-    const nodes = runForceLayout(graphData.nodes, graphData.edges, w, h, 150);
-    setSimNodes(nodes);
-
-    // Center the graph
-    if (nodes.length > 0) {
-      const avgX = nodes.reduce((s, n) => s + n.x, 0) / nodes.length;
-      const avgY = nodes.reduce((s, n) => s + n.y, 0) / nodes.length;
-      setTransform({
-        x: w / 2 - avgX,
-        y: h / 2 - avgY,
-        scale: 1,
-      });
-    }
+  // Build graphology graph from API data
+  const graph = useMemo(() => {
+    if (!graphData || graphData.nodes.length === 0) return null;
+    return buildGraph(graphData);
   }, [graphData]);
-
-  // Draw canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || simNodes.length === 0) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const container = containerRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-    const w = rect.width;
-    const h = rect.height;
-
-    // Clear
-    ctx.fillStyle = "transparent";
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.save();
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.scale, transform.scale);
-
-    // Draw edges
-    if (graphData) {
-      const nodeByKey = new Map(simNodes.map((n) => [n.key, n]));
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.15)";
-      ctx.lineWidth = 1 / transform.scale;
-      for (const edge of graphData.edges) {
-        const src = nodeByKey.get(edge.source);
-        const tgt = nodeByKey.get(edge.target);
-        if (!src || !tgt) continue;
-        ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
-        ctx.stroke();
-      }
-    }
-
-    // Draw nodes
-    for (const node of simNodes) {
-      const isHovered = hoveredNode?.key === node.key;
-      const r = isHovered ? node.radius * 1.5 : node.radius;
-
-      // Glow
-      if (isHovered) {
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 4 / transform.scale, 0, Math.PI * 2);
-        ctx.fillStyle = node.color + "33";
-        ctx.fill();
-      }
-
-      // Node circle
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = node.color;
-      ctx.fill();
-      ctx.strokeStyle = isHovered ? "#fff" : "rgba(255,255,255,0.3)";
-      ctx.lineWidth = (isHovered ? 2 : 1) / transform.scale;
-      ctx.stroke();
-    }
-
-    ctx.restore();
-  }, [simNodes, transform, hoveredNode, graphData]);
-
-  // ── Mouse handlers ──────────────────────────────────────────────
-  const findNodeAt = useCallback(
-    (clientX: number, clientY: number): SimNode | null => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return null;
-      const mx = (clientX - rect.left - transform.x) / transform.scale;
-      const my = (clientY - rect.top - transform.y) / transform.scale;
-
-      for (let i = simNodes.length - 1; i >= 0; i--) {
-        const n = simNodes[i];
-        const dx = mx - n.x;
-        const dy = my - n.y;
-        if (dx * dx + dy * dy < (n.radius + 4) * (n.radius + 4)) {
-          return n;
-        }
-      }
-      return null;
-    },
-    [simNodes, transform],
-  );
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      isDragging.current = true;
-      dragStart.current = { x: e.clientX, y: e.clientY };
-      lastTransform.current = { x: transform.x, y: transform.y };
-    },
-    [transform],
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isDragging.current) {
-        setTransform((prev) => ({
-          ...prev,
-          x: lastTransform.current.x + (e.clientX - dragStart.current.x),
-          y: lastTransform.current.y + (e.clientY - dragStart.current.y),
-        }));
-      } else {
-        const node = findNodeAt(e.clientX, e.clientY);
-        setHoveredNode(node);
-        if (canvasRef.current) {
-          canvasRef.current.style.cursor = node ? "pointer" : "grab";
-        }
-      }
-    },
-    [findNodeAt],
-  );
-
-  const handleMouseUp = useCallback(() => {
-    isDragging.current = false;
-  }, []);
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      const node = findNodeAt(e.clientX, e.clientY);
-      if (node) {
-        onPageClick?.(node.id);
-      }
-    },
-    [findNodeAt, onPageClick],
-  );
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setTransform((prev) => {
-      const newScale = Math.max(0.1, Math.min(5, prev.scale * delta));
-      return { ...prev, scale: newScale };
-    });
-  }, []);
-
-  const handleZoomIn = useCallback(() => {
-    setTransform((prev) => ({ ...prev, scale: Math.min(5, prev.scale * 1.2) }));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setTransform((prev) => ({ ...prev, scale: Math.max(0.1, prev.scale * 0.8) }));
-  }, []);
-
-  const handleFit = useCallback(() => {
-    if (simNodes.length === 0) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-
-    const minX = Math.min(...simNodes.map((n) => n.x));
-    const maxX = Math.max(...simNodes.map((n) => n.x));
-    const minY = Math.min(...simNodes.map((n) => n.y));
-    const maxY = Math.max(...simNodes.map((n) => n.y));
-
-    const graphW = maxX - minX + 100;
-    const graphH = maxY - minY + 100;
-    const scale = Math.min(rect.width / graphW, rect.height / graphH, 2);
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    setTransform({
-      x: rect.width / 2 - cx * scale,
-      y: rect.height / 2 - cy * scale,
-      scale,
-    });
-  }, [simNodes]);
 
   if (isLoading) {
     return (
@@ -459,7 +294,7 @@ export function GraphView({ wikiUrl, onPageClick }: GraphViewProps) {
     );
   }
 
-  if (!graphData || graphData.nodes.length === 0) {
+  if (!graphData || graphData.nodes.length === 0 || !graph) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-[var(--text-tertiary)]">
@@ -470,57 +305,38 @@ export function GraphView({ wikiUrl, onPageClick }: GraphViewProps) {
   }
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onClick={handleClick}
-        onWheel={handleWheel}
-      />
+    <div className="relative w-full h-full overflow-hidden">
+      {/* Sigma container with WebGL rendering */}
+      <SigmaContainer
+        style={{ height: "100%", width: "100%" }}
+        settings={{
+          allowInvalidContainer: true,
+          defaultEdgeType: "arrow",
+          labelRenderedSizeThreshold: 8,
+          labelDensity: 0.07,
+          labelColor: { color: "var(--text-primary)" },
+          labelSize: 12,
+          renderLabels: true,
+          renderEdgeLabels: false,
+          minCameraRatio: 0.1,
+          maxCameraRatio: 10,
+        }}
+      >
+        <GraphLoader graph={graph} />
+        <GraphInteraction
+          onPageClick={onPageClick}
+          onHoverChange={setHoveredNodeKey}
+        />
 
-      {/* Tooltip */}
-      {hoveredNode && (
-        <div
-          className="absolute pointer-events-none z-10 px-2.5 py-1.5 text-xs bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded-lg shadow-lg max-w-48"
-          style={{
-            left: Math.min(
-              (hoveredNode.x * transform.scale + transform.x + 15),
-              (containerRef.current?.clientWidth || 400) - 200,
-            ),
-            top: hoveredNode.y * transform.scale + transform.y - 10,
-          }}
-        >
-          <p className="font-medium truncate">{hoveredNode.title}</p>
-          <p className="text-[var(--text-tertiary)]">
-            {hoveredNode.category} · {hoveredNode.linkCount} links
-          </p>
-        </div>
-      )}
+        {/* Tooltip overlay inside Sigma context to access graph data */}
+        <HoverTooltip nodeKey={hoveredNodeKey} />
+      </SigmaContainer>
 
       {/* Controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
-        <button
-          onClick={handleZoomIn}
-          className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleZoomOut}
-          className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <button
-          onClick={handleFit}
-          className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
-        >
-          <Maximize2 className="h-4 w-4" />
-        </button>
+        <ZoomInControl />
+        <ZoomOutControl />
+        <FitControl />
       </div>
 
       {/* Stats overlay */}
@@ -596,5 +412,52 @@ export function GraphView({ wikiUrl, onPageClick }: GraphViewProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Helper: Zoom controls using Sigma's API ────────────────────────────────
+
+function ZoomInControl() {
+  const sigma = useSigma();
+  return (
+    <button
+      onClick={() => {
+        const camera = sigma.getCamera();
+        camera.animatedZoom({ duration: 200 });
+      }}
+      className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
+    >
+      <ZoomIn className="h-4 w-4" />
+    </button>
+  );
+}
+
+function ZoomOutControl() {
+  const sigma = useSigma();
+  return (
+    <button
+      onClick={() => {
+        const camera = sigma.getCamera();
+        camera.animatedUnzoom({ duration: 200 });
+      }}
+      className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
+    >
+      <ZoomOut className="h-4 w-4" />
+    </button>
+  );
+}
+
+function FitControl() {
+  const sigma = useSigma();
+  return (
+    <button
+      onClick={() => {
+        const camera = sigma.getCamera();
+        camera.animatedReset({ duration: 300 });
+      }}
+      className="p-1.5 bg-[var(--surface-primary)] border border-[var(--border-primary)] rounded hover:bg-[var(--surface-secondary)] transition-colors"
+    >
+      <Maximize2 className="h-4 w-4" />
+    </button>
   );
 }

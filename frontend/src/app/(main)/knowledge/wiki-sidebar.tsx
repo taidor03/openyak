@@ -17,6 +17,7 @@ import {
   List,
   Shield,
   Zap,
+  ListOrdered,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -96,15 +97,16 @@ interface WikiSidebarProps {
   searchResults: SearchResult[];
   isSearching: boolean;
   pages: WikiPage[];
-  viewMode: "list" | "graph" | "review";
+  viewMode: "list" | "graph" | "review" | "queue";
   searchMode: SearchMode;
+  queuePendingCount?: number;
   onTargetChange: (target: WikiTarget) => void;
   onCategoryChange: (category: string | null) => void;
   onSearchQueryChange: (query: string) => void;
   onClearSearch: () => void;
   onSelectPage: (pageId: string) => void;
   onNewPage: () => void;
-  onViewModeChange: (mode: "list" | "graph" | "review") => void;
+  onViewModeChange: (mode: "list" | "graph" | "review" | "queue") => void;
   onSearchModeChange: (mode: SearchMode) => void;
 }
 
@@ -119,6 +121,7 @@ export function WikiSidebar({
   pages,
   viewMode,
   searchMode,
+  queuePendingCount = 0,
   onTargetChange,
   onCategoryChange,
   onSearchQueryChange,
@@ -436,6 +439,23 @@ export function WikiSidebar({
             title={t("reviewView", "Review")}
           >
             <Shield className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => onViewModeChange("queue")}
+            className={cn(
+              "p-1 rounded transition-colors relative",
+              viewMode === "queue"
+                ? "bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+            )}
+            title={t("queueView", "Queue")}
+          >
+            <ListOrdered className="h-3.5 w-3.5" />
+            {queuePendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center px-0.5 text-[8px] font-bold rounded-full bg-amber-500 text-white">
+                {queuePendingCount > 9 ? "9+" : queuePendingCount}
+              </span>
+            )}
           </button>
         </div>
       </div>

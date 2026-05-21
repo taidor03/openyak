@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { api, apiErrorMessage } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
 
 // ── Ingest result for a single file ──────────────────────────────────────
 
